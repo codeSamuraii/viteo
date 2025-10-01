@@ -15,17 +15,16 @@ def main():
         return
 
     frame_count, t_start = 0, time.perf_counter()
-    for frame in videoextractor.stream_frames(extractor):
-        mx_frame = videoextractor.frame_to_mlx(frame)
 
+    for frame in videoextractor.stream_frames_mlx(extractor=extractor):
         frame_count += 1
-        if frame_count % 10 == 0:
+        if frame_count % 100 == 0:
             print(
-                f"#{frame.frame_number} - {time.strftime('%H:%M:%S', time.gmtime(frame.timestamp))} ({1/((time.perf_counter() - t_start)/frame_count):.1f} fps)"
+                f"#{frame_count} - ({1/((time.perf_counter() - t_start)/frame_count):.1f} fps) - {type(frame)} {frame.shape} {frame.dtype}"
             )
 
         # Break early if needed
-        if frame_count >= 100:
+        if frame_count >= 10000:
             break
 
     print(f"Processed {frame_count} frames using iterator\n")

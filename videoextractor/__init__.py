@@ -1,98 +1,35 @@
-"""Hardware-accelerated video frame extraction for Apple Silicon."""
 
-from .build._videoextractor import FrameExtractor, Frame
-import numpy as np
-from typing import Iterator, Optional
+import mlx.core as mx
+from .build._videoextractor import FrameExtractor
 
-__version__ = "0.1.0"
-__all__ = ["FrameExtractor", "Frame", "frame_to_numpy", "frame_to_mlx", "stream_frames"]
+__version__ = "0.2.0"
+__all__ = ["FrameExtractor", "stream_frames_mlx"]
 
 
-def frame_to_numpy(frame: Frame, format: str = "bgra") -> np.ndarray:
-    """Convert a Frame object to a numpy array.
-
-    Args:
-        frame: Frame object from the extractor
-        format: Output format - "bgra" (default, fastest), "rgb", or "rgba"
-
-    Returns:
-        numpy array with shape (height, width, channels) and dtype uint8
-    """
-    data = frame.data
-    height, width = frame.height, frame.width
-
-    arr = np.frombuffer(data, dtype=np.uint8).reshape((height, width, 4))
-
-    if format == "bgra":
-        return arr
-    elif format == "rgb":
-        # BGRA -> RGB (slower due to conversion)
-        return arr[:, :, [2, 1, 0]]
-    elif format == "rgba":
-        # BGRA -> RGBA
-        return arr[:, :, [2, 1, 0, 3]]
-    else:
-        raise ValueError(f"Unknown format: {format}")
-
-
-def frame_to_mlx(frame: Frame):
-    """Convert a Frame object to an MLX array (zero-copy when possible).
-
-    Args:
-        frame: Frame object from the extractor
-
-    Returns:
-        mlx.core.array with shape (height, width, 4) and dtype uint8 (BGRA format)
-    """
-    try:
-        import mlx.core as mx
-    except ImportError:
-        raise ImportError("MLX is not installed. Install it with: pip install mlx")
-
-    # Convert to numpy first (minimal copy)
-    arr = frame_to_numpy(frame, format="bgra")
-
-    # MLX can use the numpy array directly on Apple Silicon
-    return mx.array(arr)
-
-
-def stream_frames(
+def stream_frames_mlx(
     extractor: FrameExtractor,
     start_time: float = 0.0,
     end_time: float = 0.0,
-    batch_size: int = 32
-) -> Iterator[Frame]:
-    """Stream frames in batches for maximum performance.
-
-    This generator uses batch processing to minimize Python overhead.
-    Frames are decoded in BGRA format (native) for maximum speed.
-
+    internal_batch: int = 32
+):
+    """
+    Generator that yields MLX frames (BGRA, uint8) one at a time for maximum performance.
     Args:
         extractor: FrameExtractor instance with an open video
-        start_time: Start timestamp in seconds (default: 0.0 for beginning)
+        start_time: Start timestamp in seconds (default: 0.0)
         end_time: End timestamp in seconds (default: 0.0 for end of video)
-        batch_size: Number of frames to decode per batch (default: 32)
-
+        internal_batch: Internal batch size for efficiency (default: 32)
     Yields:
-        Frame objects as they are decoded from the video
-
-    Example:
-        >>> extractor = FrameExtractor()
-        >>> extractor.open("video.mp4")
-        >>> for frame in stream_frames(extractor, batch_size=64):
-        ...     arr = frame_to_mlx(frame)  # Fast BGRA to MLX
-        ...     # Process frame with MLX...
-        ...     if some_condition:
-        ...         break
+        MLX array of shape (height, width, 4), dtype=uint8 for each frame
     """
     if not extractor.start_streaming(start_time, end_time):
-        return
-
+        raise RuntimeError("Failed to start streaming")
+    width = extractor.width
+    height = extractor.height
+    buf = mx.zeros((internal_batch, height, width, 4), dtype=mx.uint8)
     while extractor.is_streaming():
-        frames = extractor.next_frames_batch(batch_size)
-
-        if not frames:
+        frames_written = extractor.next_frames_batch_to_buffer(buf, internal_batch)
+        if frames_written == 0:
             break
-
-        for frame in frames:
-            yield frame
+        for i in range(frames_written):
+            yield buf[i]

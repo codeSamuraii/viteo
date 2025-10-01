@@ -36,6 +36,12 @@ public:
     // Start streaming session
     bool start_streaming(double start_time = 0.0, double end_time = 0.0);
 
+
+    // Stream next batch of frames directly into a provided buffer (BGRA, uint8)
+    // out_buffer: pointer to (batch, height, width, 4) buffer
+    // Returns number of frames written
+    size_t next_frames_batch_to_buffer(uint8_t* out_buffer, size_t max_frames, int width, int height, size_t stride);
+
     // Get next batch of frames (up to max_frames)
     // Returns actual number of frames retrieved
     size_t next_frames_batch(std::vector<Frame>& frames, size_t max_frames = 32);
