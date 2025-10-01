@@ -6,3 +6,27 @@ videos/
 .DS_Store
 CLAUDE.md
 poetry.lock
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/*.txt
+build/*.ninja
+.eggs/
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+*.cmake
+!CMakeLists.txt
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
