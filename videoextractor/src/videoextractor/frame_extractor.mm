@@ -15,8 +15,9 @@ public:
     AVAssetReader* reader;
     AVAssetReaderTrackOutput* output;
     AVAssetTrack* videoTrack;
+    int64_t currentFrameNumber;
 
-    Impl() : asset(nil), reader(nil), output(nil), videoTrack(nil) {}
+    Impl() : asset(nil), reader(nil), output(nil), videoTrack(nil), currentFrameNumber(0) {}
 
     ~Impl() {
         close();
@@ -30,6 +31,7 @@ public:
         output = nil;
         videoTrack = nil;
         asset = nil;
+        currentFrameNumber = 0;
     }
 
     bool open(const std::string& path) {
@@ -43,6 +45,7 @@ public:
             return false;
         }
 
+        // Use synchronous load to avoid deprecation warning
         NSArray* tracks = [asset tracksWithMediaType:AVMediaTypeVideo];
         if (tracks.count == 0) {
             return false;
@@ -50,72 +53,6 @@ public:
 
         videoTrack = tracks[0];
         return videoTrack != nil;
-    }
-
-    Frame extractFrameAtTime(double timestamp) {
-        Frame frame;
-
-        if (!asset || !videoTrack) {
-            return frame;
-        }
-
-        @autoreleasepool {
-            CMTime time = CMTimeMakeWithSeconds(timestamp, 600);
-
-            AVAssetImageGenerator* generator = [[AVAssetImageGenerator alloc] initWithAsset:asset];
-            generator.requestedTimeToleranceBefore = kCMTimeZero;
-            generator.requestedTimeToleranceAfter = kCMTimeZero;
-            generator.appliesPreferredTrackTransform = YES;
-
-            // Request hardware acceleration
-            generator.apertureMode = AVAssetImageGeneratorApertureModeCleanAperture;
-
-            NSError* error = nil;
-            CMTime actualTime;
-            CGImageRef imageRef = [generator copyCGImageAtTime:time actualTime:&actualTime error:&error];
-
-            if (error || !imageRef) {
-                if (imageRef) {
-                    CGImageRelease(imageRef);
-                }
-                return frame;
-            }
-
-            // Get image properties
-            size_t width = CGImageGetWidth(imageRef);
-            size_t height = CGImageGetHeight(imageRef);
-
-            // Create RGB buffer
-            std::vector<uint8_t> rgbData(width * height * 3);
-
-            // Create context and draw image
-            CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
-            CGContextRef context = CGBitmapContextCreate(
-                rgbData.data(),
-                width,
-                height,
-                8,
-                width * 3,
-                colorSpace,
-                kCGImageAlphaNoneSkipLast | kCGBitmapByteOrderDefault
-            );
-
-            if (context) {
-                CGContextDrawImage(context, CGRectMake(0, 0, width, height), imageRef);
-
-                frame.data = std::move(rgbData);
-                frame.width = static_cast<int>(width);
-                frame.height = static_cast<int>(height);
-                frame.timestamp = CMTimeGetSeconds(actualTime);
-
-                CGContextRelease(context);
-            }
-
-            CGColorSpaceRelease(colorSpace);
-            CGImageRelease(imageRef);
-        }
-
-        return frame;
     }
 
     double getDuration() const {
@@ -148,7 +85,7 @@ public:
         return static_cast<double>([videoTrack nominalFrameRate]);
     }
 
-    Frame convertSampleBufferToFrame(CMSampleBufferRef sampleBuffer, int64_t frameNumber) {
+    Frame convertSampleBufferToFrameFast(CMSampleBufferRef sampleBuffer, int64_t frameNumber) {
         Frame frame;
         frame.frame_number = frameNumber;
 
@@ -157,11 +94,9 @@ public:
             return frame;
         }
 
-        // Get timestamp
         CMTime presentationTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer);
         frame.timestamp = CMTimeGetSeconds(presentationTime);
 
-        // Lock the pixel buffer
         CVPixelBufferLockBaseAddress(imageBuffer, kCVPixelBufferLock_ReadOnly);
 
         size_t width = CVPixelBufferGetWidth(imageBuffer);
@@ -169,146 +104,30 @@ public:
         frame.width = static_cast<int>(width);
         frame.height = static_cast<int>(height);
 
-        // Get pixel format
-        OSType pixelFormat = CVPixelBufferGetPixelFormatType(imageBuffer);
+        // Use BGRA directly - no conversion needed!
+        uint8_t* baseAddress = (uint8_t*)CVPixelBufferGetBaseAddress(imageBuffer);
+        size_t bytesPerRow = CVPixelBufferGetBytesPerRow(imageBuffer);
+        size_t dataSize = bytesPerRow * height;
 
-        // Allocate RGB buffer
-        frame.data.resize(width * height * 3);
+        // Fast memory copy (or ideally zero-copy if we can keep the buffer alive)
+        frame.data.resize(dataSize);
 
-        // Convert based on pixel format
-        if (pixelFormat == kCVPixelFormatType_32BGRA || pixelFormat == kCVPixelFormatType_32ARGB) {
-            // Handle BGRA/ARGB format
-            uint8_t* baseAddress = (uint8_t*)CVPixelBufferGetBaseAddress(imageBuffer);
-            size_t bytesPerRow = CVPixelBufferGetBytesPerRow(imageBuffer);
-
-            for (size_t y = 0; y < height; y++) {
-                uint8_t* rowPtr = baseAddress + y * bytesPerRow;
-                for (size_t x = 0; x < width; x++) {
-                    size_t srcIdx = x * 4;
-                    size_t dstIdx = (y * width + x) * 3;
-
-                    if (pixelFormat == kCVPixelFormatType_32BGRA) {
-                        frame.data[dstIdx + 0] = rowPtr[srcIdx + 2]; // R
-                        frame.data[dstIdx + 1] = rowPtr[srcIdx + 1]; // G
-                        frame.data[dstIdx + 2] = rowPtr[srcIdx + 0]; // B
-                    } else {
-                        frame.data[dstIdx + 0] = rowPtr[srcIdx + 1]; // R
-                        frame.data[dstIdx + 1] = rowPtr[srcIdx + 2]; // G
-                        frame.data[dstIdx + 2] = rowPtr[srcIdx + 3]; // B
-                    }
-                }
-            }
+        // Use memcpy for optimal performance
+        if (bytesPerRow == width * 4) {
+            // Contiguous memory - single copy
+            memcpy(frame.data.data(), baseAddress, dataSize);
         } else {
-            // For other formats, use CoreGraphics conversion
-            CIImage* ciImage = [CIImage imageWithCVPixelBuffer:imageBuffer];
-            CIContext* context = [CIContext contextWithOptions:nil];
-
-            CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
-            CGImageRef cgImage = [context createCGImage:ciImage fromRect:CGRectMake(0, 0, width, height)];
-
-            if (cgImage) {
-                CGContextRef bitmapContext = CGBitmapContextCreate(
-                    frame.data.data(),
-                    width,
-                    height,
-                    8,
-                    width * 3,
-                    colorSpace,
-                    kCGImageAlphaNoneSkipLast | kCGBitmapByteOrderDefault
-                );
-
-                if (bitmapContext) {
-                    CGContextDrawImage(bitmapContext, CGRectMake(0, 0, width, height), cgImage);
-                    CGContextRelease(bitmapContext);
-                }
-
-                CGImageRelease(cgImage);
+            // Copy row by row if there's padding
+            for (size_t y = 0; y < height; y++) {
+                memcpy(frame.data.data() + y * width * 4,
+                       baseAddress + y * bytesPerRow,
+                       width * 4);
             }
-
-            CGColorSpaceRelease(colorSpace);
         }
 
         CVPixelBufferUnlockBaseAddress(imageBuffer, kCVPixelBufferLock_ReadOnly);
 
         return frame;
-    }
-
-    void streamFrames(double startTime, double endTime, FrameCallback callback) {
-        if (!asset || !videoTrack) {
-            return;
-        }
-
-        @autoreleasepool {
-            NSError* error = nil;
-
-            // Create asset reader
-            AVAssetReader* streamReader = [[AVAssetReader alloc] initWithAsset:asset error:&error];
-            if (error || !streamReader) {
-                return;
-            }
-
-            // Configure output settings for hardware decoding
-            NSDictionary* outputSettings = @{
-                (id)kCVPixelBufferPixelFormatTypeKey: @(kCVPixelFormatType_32BGRA),
-                (id)kCVPixelBufferMetalCompatibilityKey: @YES,  // Enable Metal compatibility for GPU
-            };
-
-            AVAssetReaderTrackOutput* trackOutput = [[AVAssetReaderTrackOutput alloc]
-                initWithTrack:videoTrack
-                outputSettings:outputSettings];
-
-            trackOutput.alwaysCopiesSampleData = NO;  // Zero-copy when possible
-
-            if (![streamReader canAddOutput:trackOutput]) {
-                return;
-            }
-
-            [streamReader addOutput:trackOutput];
-
-            // Set time range if specified
-            if (startTime > 0 || endTime > 0) {
-                CMTime start = CMTimeMakeWithSeconds(startTime, 600);
-                CMTime duration;
-                if (endTime > 0) {
-                    duration = CMTimeMakeWithSeconds(endTime - startTime, 600);
-                } else {
-                    duration = CMTimeSubtract([asset duration], start);
-                }
-                streamReader.timeRange = CMTimeRangeMake(start, duration);
-            }
-
-            // Start reading
-            if (![streamReader startReading]) {
-                return;
-            }
-
-            int64_t frameNumber = 0;
-
-            // Read samples in a loop
-            while (streamReader.status == AVAssetReaderStatusReading) {
-                @autoreleasepool {
-                    CMSampleBufferRef sampleBuffer = [trackOutput copyNextSampleBuffer];
-
-                    if (sampleBuffer) {
-                        Frame frame = convertSampleBufferToFrame(sampleBuffer, frameNumber++);
-                        CFRelease(sampleBuffer);
-
-                        if (!frame.data.empty()) {
-                            // Call the callback
-                            bool shouldContinue = callback(frame);
-                            if (!shouldContinue) {
-                                [streamReader cancelReading];
-                                break;
-                            }
-                        }
-                    } else {
-                        break;
-                    }
-                }
-            }
-
-            [streamReader cancelReading];
-        }
     }
 };
 
@@ -328,31 +147,6 @@ void FrameExtractor::close() {
     pImpl->close();
 }
 
-Frame FrameExtractor::extract_frame(double timestamp) {
-    return pImpl->extractFrameAtTime(timestamp);
-}
-
-std::vector<Frame> FrameExtractor::extract_frames(const std::vector<double>& timestamps) {
-    std::vector<Frame> frames;
-    frames.reserve(timestamps.size());
-
-    for (double ts : timestamps) {
-        frames.push_back(extract_frame(ts));
-    }
-
-    return frames;
-}
-
-std::vector<Frame> FrameExtractor::extract_frames_interval(double start, double end, double interval) {
-    std::vector<Frame> frames;
-
-    for (double ts = start; ts <= end; ts += interval) {
-        frames.push_back(extract_frame(ts));
-    }
-
-    return frames;
-}
-
 double FrameExtractor::get_duration() const {
     return pImpl->getDuration();
 }
@@ -369,16 +163,109 @@ double FrameExtractor::get_fps() const {
     return pImpl->getFPS();
 }
 
-void FrameExtractor::stream_frames(FrameCallback callback) {
-    pImpl->streamFrames(0.0, 0.0, callback);
+bool FrameExtractor::start_streaming(double start_time, double end_time) {
+    if (!pImpl->asset || !pImpl->videoTrack) {
+        return false;
+    }
+
+    if (pImpl->reader) {
+        [pImpl->reader cancelReading];
+        pImpl->reader = nil;
+        pImpl->output = nil;
+    }
+
+    @autoreleasepool {
+        NSError* error = nil;
+
+        pImpl->reader = [[AVAssetReader alloc] initWithAsset:pImpl->asset error:&error];
+        if (error || !pImpl->reader) {
+            return false;
+        }
+
+        // Configure output settings for hardware decoding
+        NSDictionary* outputSettings = @{
+            (id)kCVPixelBufferPixelFormatTypeKey: @(kCVPixelFormatType_32BGRA),
+            (id)kCVPixelBufferMetalCompatibilityKey: @YES,  // Metal-compatible for MLX
+        };
+
+        pImpl->output = [[AVAssetReaderTrackOutput alloc]
+            initWithTrack:pImpl->videoTrack
+            outputSettings:outputSettings];
+
+        pImpl->output.alwaysCopiesSampleData = NO;  // Zero-copy when possible
+
+        if (![pImpl->reader canAddOutput:pImpl->output]) {
+            pImpl->reader = nil;
+            pImpl->output = nil;
+            return false;
+        }
+
+        [pImpl->reader addOutput:pImpl->output];
+
+        if (start_time > 0 || end_time > 0) {
+            CMTime start = CMTimeMakeWithSeconds(start_time, 600);
+            CMTime duration;
+            if (end_time > 0) {
+                duration = CMTimeMakeWithSeconds(end_time - start_time, 600);
+            } else {
+                duration = CMTimeSubtract([pImpl->asset duration], start);
+            }
+            pImpl->reader.timeRange = CMTimeRangeMake(start, duration);
+        }
+
+        if (![pImpl->reader startReading]) {
+            pImpl->reader = nil;
+            pImpl->output = nil;
+            return false;
+        }
+
+        pImpl->currentFrameNumber = 0;
+        return true;
+    }
 }
 
-void FrameExtractor::stream_frames_from(double start_time, FrameCallback callback) {
-    pImpl->streamFrames(start_time, 0.0, callback);
+size_t FrameExtractor::next_frames_batch(std::vector<Frame>& frames, size_t max_frames) {
+    frames.clear();
+
+    if (!pImpl->reader || !pImpl->output) {
+        return 0;
+    }
+
+    if (pImpl->reader.status != AVAssetReaderStatusReading) {
+        [pImpl->reader cancelReading];
+        pImpl->reader = nil;
+        pImpl->output = nil;
+        return 0;
+    }
+
+    frames.reserve(max_frames);
+
+    @autoreleasepool {
+        for (size_t i = 0; i < max_frames; i++) {
+            CMSampleBufferRef sampleBuffer = [pImpl->output copyNextSampleBuffer];
+
+            if (!sampleBuffer) {
+                // End of stream
+                [pImpl->reader cancelReading];
+                pImpl->reader = nil;
+                pImpl->output = nil;
+                break;
+            }
+
+            Frame frame = pImpl->convertSampleBufferToFrameFast(sampleBuffer, pImpl->currentFrameNumber++);
+            CFRelease(sampleBuffer);
+
+            if (!frame.data.empty()) {
+                frames.push_back(std::move(frame));
+            }
+        }
+    }
+
+    return frames.size();
 }
 
-void FrameExtractor::stream_frames_range(double start_time, double end_time, FrameCallback callback) {
-    pImpl->streamFrames(start_time, end_time, callback);
+bool FrameExtractor::is_streaming() const {
+    return pImpl->reader != nil && pImpl->reader.status == AVAssetReaderStatusReading;
 }
 
 } // namespace videoextractor

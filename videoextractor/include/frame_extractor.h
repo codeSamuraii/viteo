@@ -9,11 +9,11 @@
 namespace videoextractor {
 
 struct Frame {
-    std::vector<uint8_t> data;  // RGB data
+    std::vector<uint8_t> data;  // BGRA data (native format, no conversion)
     int width;
     int height;
-    double timestamp;  // in seconds
-    int64_t frame_number;  // Sequential frame number
+    double timestamp;
+    int64_t frame_number;
 
     Frame() : width(0), height(0), timestamp(0.0), frame_number(0) {}
 };
@@ -23,20 +23,8 @@ public:
     FrameExtractor();
     ~FrameExtractor();
 
-    // Open a video file
     bool open(const std::string& path);
-
-    // Close the current video
     void close();
-
-    // Extract a single frame at the given timestamp (in seconds)
-    Frame extract_frame(double timestamp);
-
-    // Extract frames at specified timestamps
-    std::vector<Frame> extract_frames(const std::vector<double>& timestamps);
-
-    // Extract frames at regular intervals
-    std::vector<Frame> extract_frames_interval(double start, double end, double interval);
 
     // Get video properties
     double get_duration() const;
@@ -44,19 +32,16 @@ public:
     int get_height() const;
     double get_fps() const;
 
-    // Streaming API - read frames sequentially as fast as possible
-    // Callback is called for each frame as it's decoded
-    // Returns false if streaming should stop, true to continue
-    using FrameCallback = std::function<bool(const Frame&)>;
+    // High-performance streaming with batching
+    // Start streaming session
+    bool start_streaming(double start_time = 0.0, double end_time = 0.0);
 
-    // Start streaming frames from the beginning
-    void stream_frames(FrameCallback callback);
+    // Get next batch of frames (up to max_frames)
+    // Returns actual number of frames retrieved
+    size_t next_frames_batch(std::vector<Frame>& frames, size_t max_frames = 32);
 
-    // Start streaming frames from a specific timestamp
-    void stream_frames_from(double start_time, FrameCallback callback);
-
-    // Start streaming frames between start and end timestamps
-    void stream_frames_range(double start_time, double end_time, FrameCallback callback);
+    // Check if streaming session is active
+    bool is_streaming() const;
 
 private:
     class Impl;

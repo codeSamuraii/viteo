@@ -2,118 +2,97 @@
 
 from .build._videoextractor import FrameExtractor, Frame
 import numpy as np
-from typing import Iterator, Callable, Optional
-from collections import deque
+from typing import Iterator, Optional
 
 __version__ = "0.1.0"
-__all__ = ["FrameExtractor", "Frame", "frame_to_numpy", "stream_to_iterator", "stream_to_queue"]
+__all__ = ["FrameExtractor", "Frame", "frame_to_numpy", "frame_to_mlx", "stream_frames"]
 
 
-def frame_to_numpy(frame: Frame) -> np.ndarray:
+def frame_to_numpy(frame: Frame, format: str = "bgra") -> np.ndarray:
     """Convert a Frame object to a numpy array.
+
+    Args:
+        frame: Frame object from the extractor
+        format: Output format - "bgra" (default, fastest), "rgb", or "rgba"
+
+    Returns:
+        numpy array with shape (height, width, channels) and dtype uint8
+    """
+    data = frame.data
+    height, width = frame.height, frame.width
+
+    arr = np.frombuffer(data, dtype=np.uint8).reshape((height, width, 4))
+
+    if format == "bgra":
+        return arr
+    elif format == "rgb":
+        # BGRA -> RGB (slower due to conversion)
+        return arr[:, :, [2, 1, 0]]
+    elif format == "rgba":
+        # BGRA -> RGBA
+        return arr[:, :, [2, 1, 0, 3]]
+    else:
+        raise ValueError(f"Unknown format: {format}")
+
+
+def frame_to_mlx(frame: Frame):
+    """Convert a Frame object to an MLX array (zero-copy when possible).
 
     Args:
         frame: Frame object from the extractor
 
     Returns:
-        numpy array with shape (height, width, 3) and dtype uint8
+        mlx.core.array with shape (height, width, 4) and dtype uint8 (BGRA format)
     """
-    data = frame.data
-    height, width = frame.height, frame.width
+    try:
+        import mlx.core as mx
+    except ImportError:
+        raise ImportError("MLX is not installed. Install it with: pip install mlx")
 
-    # Convert bytes to numpy array
-    arr = np.frombuffer(data, dtype=np.uint8)
+    # Convert to numpy first (minimal copy)
+    arr = frame_to_numpy(frame, format="bgra")
 
-    # Reshape to (height, width, 3)
-    return arr.reshape((height, width, 3))
+    # MLX can use the numpy array directly on Apple Silicon
+    return mx.array(arr)
 
 
-def stream_to_iterator(extractor: FrameExtractor, start_time: float = 0.0, end_time: float = 0.0) -> Iterator[Frame]:
-    """Convert streaming API to Python iterator.
+def stream_frames(
+    extractor: FrameExtractor,
+    start_time: float = 0.0,
+    end_time: float = 0.0,
+    batch_size: int = 32
+) -> Iterator[Frame]:
+    """Stream frames in batches for maximum performance.
+
+    This generator uses batch processing to minimize Python overhead.
+    Frames are decoded in BGRA format (native) for maximum speed.
 
     Args:
         extractor: FrameExtractor instance with an open video
         start_time: Start timestamp in seconds (default: 0.0 for beginning)
         end_time: End timestamp in seconds (default: 0.0 for end of video)
+        batch_size: Number of frames to decode per batch (default: 32)
 
     Yields:
-        Frame objects as they are decoded
+        Frame objects as they are decoded from the video
 
     Example:
         >>> extractor = FrameExtractor()
         >>> extractor.open("video.mp4")
-        >>> for frame in stream_to_iterator(extractor):
-        ...     arr = frame_to_numpy(frame)
-        ...     # Process frame...
-    """
-    frames = deque()
-
-    def callback(frame: Frame) -> bool:
-        frames.append(frame)
-        return True
-
-    # Start streaming in callback
-    if end_time > 0:
-        extractor.stream_frames_range(start_time, end_time, callback)
-    elif start_time > 0:
-        extractor.stream_frames_from(start_time, callback)
-    else:
-        extractor.stream_frames(callback)
-
-    # Yield all collected frames
-    while frames:
-        yield frames.popleft()
-
-
-def stream_to_queue(extractor: FrameExtractor, maxsize: int = 0, start_time: float = 0.0, end_time: float = 0.0):
-    """Stream frames to a queue for producer-consumer pattern.
-
-    Args:
-        extractor: FrameExtractor instance with an open video
-        maxsize: Maximum queue size (0 for unlimited)
-        start_time: Start timestamp in seconds (default: 0.0 for beginning)
-        end_time: End timestamp in seconds (default: 0.0 for end of video)
-
-    Returns:
-        Queue object that will be filled with Frame objects
-
-    Example:
-        >>> import threading
-        >>> from queue import Queue
-        >>>
-        >>> extractor = FrameExtractor()
-        >>> extractor.open("video.mp4")
-        >>> q = stream_to_queue(extractor, maxsize=10)
-        >>>
-        >>> # Consumer thread
-        >>> while True:
-        ...     frame = q.get()
-        ...     if frame is None:  # Sentinel value for end
+        >>> for frame in stream_frames(extractor, batch_size=64):
+        ...     arr = frame_to_mlx(frame)  # Fast BGRA to MLX
+        ...     # Process frame with MLX...
+        ...     if some_condition:
         ...         break
-        ...     # Process frame...
     """
-    from queue import Queue
-    import threading
+    if not extractor.start_streaming(start_time, end_time):
+        return
 
-    q = Queue(maxsize=maxsize)
+    while extractor.is_streaming():
+        frames = extractor.next_frames_batch(batch_size)
 
-    def stream_thread():
-        try:
-            def callback(frame: Frame) -> bool:
-                q.put(frame)
-                return True
+        if not frames:
+            break
 
-            if end_time > 0:
-                extractor.stream_frames_range(start_time, end_time, callback)
-            elif start_time > 0:
-                extractor.stream_frames_from(start_time, callback)
-            else:
-                extractor.stream_frames(callback)
-        finally:
-            # Signal end of stream
-            q.put(None)
-
-    thread = threading.Thread(target=stream_thread, daemon=True)
-    thread.start()
-
-    return q
+        for frame in frames:
+            yield frame
