@@ -1,0 +1,26 @@
+[project]
+name = "altiv"
+version = "0.1.0"
+description = "Video processing with Apple hardware acceleration"
+authors = [
+    {name = "Rémi Héneault", email = "remi@heneault.fr"}
+]
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "mlx >=0.28.0",
+    "rich >=14.0",
+]
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+package-mode = false
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.4.2"
+setuptools = "^80.9.0"
+ipython = "^9.6.0"
+

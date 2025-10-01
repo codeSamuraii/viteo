@@ -1,0 +1,8 @@
+.claude/
+.mypy_cache/
+.pytest_cache/
+videos/
+
+.DS_Store
+CLAUDE.md
+poetry.lock
