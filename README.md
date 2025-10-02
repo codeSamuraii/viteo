@@ -10,13 +10,14 @@
 
 </div>
 
----
+----
 
 - **Hardware-accelerated** extraction using AVFoundation/VideoToolbox
 - **MLX native** with direct BGRA frame copy to `mx.array`
 - **Lightweight bindings** using `nanobind` and GIL release
 - **Pythonic** interface with simple iterators and context managers
 
+<br />
 
 ## Getting started
 
@@ -47,7 +48,7 @@ cd viteo
 pip install -v -e .
 ```
 
-#### Rebuilding
+### Rebuilding
 
 ```bash
 rm -rf dist/
