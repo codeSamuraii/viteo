@@ -21,7 +21,7 @@ import mlx.core as mx
 from _viteo import FrameExtractor as _FrameExtractor, FrameIterator as _FrameIterator
 from typing import Optional, Iterator
 
-__version__ = "0.1.0"
+__version__ = "0.1.0b"
 __all__ = ["FrameExtractor", "open"]
 
 

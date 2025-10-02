@@ -4,7 +4,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "viteo"
-version = "0.1.0"
+version = "0.1.0b"
 description = "Hardware-accelerated video frame extraction for Apple Silicon"
 readme = "README.md"
 requires-python = ">=3.10"
