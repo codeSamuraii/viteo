@@ -18,7 +18,7 @@ Example usage:
 """
 
 import mlx.core as mx
-from .build._viteo import FrameExtractor as _FrameExtractor
+from _viteo import FrameExtractor as _FrameExtractor
 
 __version__ = "0.3.0"
 __all__ = ["FrameExtractor", "open", "extract_all"]

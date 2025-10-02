@@ -1,0 +1,6 @@
+include README.md
+include LICENSE
+include CMakeLists.txt
+include pyproject.toml
+recursive-include src/native *.h *.cpp *.mm
+recursive-include src/viteo *.py

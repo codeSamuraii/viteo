@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.18)
-project(viteo)
+project(viteo LANGUAGES CXX OBJCXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -32,8 +32,8 @@ find_library(COREIMAGE_FRAMEWORK CoreImage REQUIRED)
 
 # Source files
 set(SOURCES
-  src/viteo/frame_extractor.mm
-  src/viteo/bindings.cpp
+  src/native/src/frame_extractor.mm
+  src/native/src/bindings.cpp
 )
 
 # Create Python extension module
@@ -42,7 +42,7 @@ nanobind_add_module(
   ${SOURCES}
 )
 
-target_include_directories(_viteo PRIVATE include)
+target_include_directories(_viteo PRIVATE src/native/include)
 
 target_link_libraries(_viteo PRIVATE
   ${AVFOUNDATION_FRAMEWORK}
@@ -56,7 +56,10 @@ target_link_libraries(_viteo PRIVATE
 
 # Enable Objective-C++ for .mm files
 set_source_files_properties(
-  src/viteo/frame_extractor.mm
+  src/native/src/frame_extractor.mm
   PROPERTIES
   COMPILE_FLAGS "-fobjc-arc"
 )
+
+# Install the extension module to the correct location
+install(TARGETS _viteo LIBRARY DESTINATION .)
