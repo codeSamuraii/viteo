@@ -5,6 +5,7 @@
 **High-performance video frame extraction for Apple Silicon**
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![PyPI](https://img.shields.io/pypi/v/viteo.svg)](https://pypi.org/project/viteo/)
 [![Apple Silicon](https://img.shields.io/badge/platform-Apple%20Silicon-lightgrey.svg)](https://www.apple.com/mac/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -38,7 +39,9 @@ for frame in extractor:
 
 ## Installation
 
-> **Note:** PyPI package coming very soon!
+```bash
+pip install viteo
+```
 
 ### From source
 
@@ -48,7 +51,7 @@ cd viteo
 pip install -v -e .
 ```
 
-### Rebuilding
+#### Rebuilding
 
 ```bash
 rm -rf dist/
