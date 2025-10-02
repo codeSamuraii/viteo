@@ -1,20 +1,20 @@
-# videoextractor
+# viteo
 
 High-performance video frame extraction for Apple Silicon using AVFoundation/VideoToolbox with MLX integration.
 
 ## Usage
 
 ```python
-import videoextractor
+import viteo
 
 # Simple iteration
-with videoextractor.open("video.mp4") as frames:
+with viteo.open("video.mp4") as frames:
     for frame in frames:
         # frame is MLX array (height, width, 4) BGRA format
         process(frame)
 
 # Or direct extraction
-extractor = videoextractor.FrameExtractor("video.mp4")
+extractor = viteo.FrameExtractor("video.mp4")
 for frame in extractor:
     process(frame)
 ```
@@ -23,7 +23,7 @@ for frame in extractor:
 
 ```bash
 # [WIP - Installation process will be simplified]
-poetry run videoextractor/build/rebuild.sh
+poetry run viteo/build/rebuild.sh
 poetry install -v
 ```
 

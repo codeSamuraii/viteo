@@ -3,7 +3,7 @@
 
 import time
 import mlx.core as mx
-import videoextractor
+import viteo
 
 def test_basic_extraction(video_path):
     """Test basic frame extraction."""
@@ -11,7 +11,7 @@ def test_basic_extraction(video_path):
     print("-" * 50)
 
     # Open video
-    extractor = videoextractor.FrameExtractor(video_path)
+    extractor = viteo.FrameExtractor(video_path)
     print(f"Video properties:")
     print(f"  Resolution: {extractor.width}x{extractor.height}")
     print(f"  FPS: {extractor.fps:.2f}")
@@ -42,7 +42,7 @@ def test_basic_extraction(video_path):
 
     # Test context manager
     print("\nTesting context manager...")
-    with videoextractor.open(video_path) as frames:
+    with viteo.open(video_path) as frames:
         first_frame = next(iter(frames))
         print(f"  Got frame with shape: {first_frame.shape}")
 
@@ -54,7 +54,7 @@ def benchmark_extraction(video_path, num_frames=500):
     print(f"\nBenchmarking extraction of {num_frames} frames...")
     print("-" * 50)
 
-    extractor = videoextractor.FrameExtractor(video_path)
+    extractor = viteo.FrameExtractor(video_path)
 
     # Warm up
     for i, frame in enumerate(extractor):
@@ -106,7 +106,7 @@ if __name__ == "__main__":
                 break
 
         if not video_path:
-            print("Usage: python test_videoextractor.py <video_file>")
+            print("Usage: python test_viteo.py <video_file>")
             print("No video file provided and no sample video found.")
             sys.exit(1)
 

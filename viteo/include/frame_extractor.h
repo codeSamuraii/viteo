@@ -4,7 +4,7 @@
 #include <string>
 #include <cstdint>
 
-namespace videoextractor {
+namespace viteo {
 
 class FrameExtractor {
 public:
@@ -34,6 +34,6 @@ private:
     Impl* impl;
 };
 
-} // namespace videoextractor
+} // namespace viteo
 
 #endif // FRAME_EXTRACTOR_H

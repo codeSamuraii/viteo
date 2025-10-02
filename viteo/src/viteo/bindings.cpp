@@ -5,7 +5,7 @@
 #include <Python.h>
 
 namespace nb = nanobind;
-using namespace videoextractor;
+using namespace viteo;
 
 // Custom iterator class for frame extraction
 class FrameIterator {
@@ -83,7 +83,7 @@ public:
     }
 };
 
-NB_MODULE(_videoextractor, m) {
+NB_MODULE(_viteo, m) {
     m.doc() = "Hardware-accelerated video frame extraction for Apple Silicon with MLX";
 
     nb::class_<FrameExtractor>(m, "FrameExtractor")

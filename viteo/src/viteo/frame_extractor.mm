@@ -6,7 +6,7 @@
 #include <atomic>
 #include <dispatch/dispatch.h>
 
-namespace videoextractor {
+namespace viteo {
 
 class FrameExtractor::Impl {
 public:
@@ -27,7 +27,7 @@ public:
     std::atomic<bool> isOpen{false};
 
     Impl() {
-        prefetchQueue = dispatch_queue_create("videoextractor.prefetch", DISPATCH_QUEUE_SERIAL);
+        prefetchQueue = dispatch_queue_create("viteo.prefetch", DISPATCH_QUEUE_SERIAL);
     }
 
     ~Impl() {
@@ -218,4 +218,4 @@ void FrameExtractor::reset(int64_t frame_index) {
     impl->reset(frame_index);
 }
 
-} // namespace videoextractor
+} // namespace viteo

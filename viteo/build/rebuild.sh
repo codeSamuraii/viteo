@@ -6,8 +6,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VDEX_DIR="$(dirname "$SCRIPT_DIR")"
 
 # Verify we're in the correct location
-if [[ "$(basename "$VDEX_DIR")" != "videoextractor" ]] || [[ ! -d "$VDEX_DIR" ]]; then
-    echo "Error: Rebuild script must be in 'videoextractor/build/'" >&2
+if [[ "$(basename "$VDEX_DIR")" != "viteo" ]] || [[ ! -d "$VDEX_DIR" ]]; then
+    echo "Error: Rebuild script must be in 'viteo/build/'" >&2
     exit 1
 fi
 
@@ -32,15 +32,15 @@ fi
 
 # Verify the extension can be imported
 echo " -> Verifying import..."
-if poetry run python -c "import videoextractor; print(f' -> Version: {videoextractor.__version__}'); print(f' -> Module: {videoextractor.__file__}')"; then
+if poetry run python -c "import viteo; print(f' -> Version: {viteo.__version__}'); print(f' -> Module: {viteo.__file__}')"; then
     echo "*** Extension rebuilt successfully!"
 else
-    echo "xxx Could not import videoextractor" >&2
+    echo "xxx Could not import viteo" >&2
     exit 1
 fi
 
 echo " -> Cleaning build artifacts..."
-KEEP_FILES=("rebuild.sh" "_videoextractor.cpython-313-darwin.so" "libnanobind-static.a")
+KEEP_FILES=("rebuild.sh" "_viteo.cpython-313-darwin.so" "libnanobind-static.a")
 for file in "$BUILD_DIR"/* "$BUILD_DIR"/.*; do
     # Skip if glob didn't match anything
     [[ -e "$file" ]] || continue

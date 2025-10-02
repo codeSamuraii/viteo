@@ -2,23 +2,23 @@
 Hardware-accelerated video frame extraction for Apple Silicon with MLX.
 
 Example usage:
-    import videoextractor
+    import viteo
 
     # Simple iteration
-    extractor = videoextractor.FrameExtractor()
+    extractor = viteo.FrameExtractor()
     extractor.open("video.mp4")
     for frame in extractor:
         # frame is an MLX array of shape (height, width, 4) with BGRA data
         process_frame(frame)
 
     # Or using context manager
-    with videoextractor.open("video.mp4") as frames:
+    with viteo.open("video.mp4") as frames:
         for frame in frames:
             process_frame(frame)
 """
 
 import mlx.core as mx
-from .build._videoextractor import FrameExtractor as _FrameExtractor
+from .build._viteo import FrameExtractor as _FrameExtractor
 
 __version__ = "0.3.0"
 __all__ = ["FrameExtractor", "open", "extract_all"]
@@ -63,7 +63,7 @@ def open(path):
         FrameExtractor instance configured for iteration
 
     Example:
-        with videoextractor.open("video.mp4") as frames:
+        with viteo.open("video.mp4") as frames:
             for frame in frames:
                 # Process MLX array
                 pass

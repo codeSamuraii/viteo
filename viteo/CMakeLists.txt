@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.18)
-project(videoextractor)
+project(viteo)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -32,19 +32,19 @@ find_library(COREIMAGE_FRAMEWORK CoreImage REQUIRED)
 
 # Source files
 set(SOURCES
-  src/videoextractor/frame_extractor.mm
-  src/videoextractor/bindings.cpp
+  src/viteo/frame_extractor.mm
+  src/viteo/bindings.cpp
 )
 
 # Create Python extension module
 nanobind_add_module(
-  _videoextractor
+  _viteo
   ${SOURCES}
 )
 
-target_include_directories(_videoextractor PRIVATE include)
+target_include_directories(_viteo PRIVATE include)
 
-target_link_libraries(_videoextractor PRIVATE
+target_link_libraries(_viteo PRIVATE
   ${AVFOUNDATION_FRAMEWORK}
   ${COREVIDEO_FRAMEWORK}
   ${COREMEDIA_FRAMEWORK}
@@ -56,7 +56,7 @@ target_link_libraries(_videoextractor PRIVATE
 
 # Enable Objective-C++ for .mm files
 set_source_files_properties(
-  src/videoextractor/frame_extractor.mm
+  src/viteo/frame_extractor.mm
   PROPERTIES
   COMPILE_FLAGS "-fobjc-arc"
 )

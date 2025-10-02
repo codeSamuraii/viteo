@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "altiv"
+name = "viteo-package"
 version = "0.1.0"
 description = "Video processing with Apple hardware acceleration"
 authors = ["Rémi Héneault <remi@heneault.fr>"]
@@ -11,7 +11,7 @@ python = "^3.13"
 mlx = "*"
 rich = "*"
 numpy = "*"
-videoextractor = {path = "videoextractor", develop = true}
+viteo = {path = "viteo", develop = true}
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
