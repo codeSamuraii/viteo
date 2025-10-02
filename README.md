@@ -1,21 +1,6 @@
 <div align="center">
 
-<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1" height="200px" width="400px" viewBox="0 0 400 100">
-  <defs>
-    <linearGradient x1="87.9681034%" y1="50%" x2="1.27351722%" y2="50%" id="linearGradient-1">
-      <stop offset="0%" stop-color="#174889"></stop>
-      <stop offset="67.6877392%" stop-color="#7c46ce"></stop>
-      <stop offset="100%" stop-color="#c1c8ca"></stop>
-    </linearGradient>
-  </defs>
-  <g id="Page-1" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd" font-family="Arial-BoldMT, Arial" font-weight="bold">
-    <g id="gh-banner">
-      <text id="gh-title-reflection" fill="url(#linearGradient-1)" font-size="72">
-        <tspan x="200" y="120" text-anchor="middle">viteo</tspan>
-      </text>
-    </g>
-  </g>
-</svg>
+![logo](https://github.com/user-attachments/assets/a7e90f28-64db-4401-94de-f8b573d3eec8)
 
 **High-performance video frame extraction for Apple Silicon**
 
@@ -32,7 +17,6 @@
 - **Lightweight bindings** using `nanobind` and GIL release
 - **Pythonic** interface with simple iterators and context managers
 
-<br />
 
 ## Getting started
 
