@@ -1,35 +1,56 @@
 # videoextractor
 
-Python extension for hardware-accelerated video frame extraction using AVFoundation/VideoToolbox and `nanobind`.
+High-performance video frame extraction for Apple Silicon using AVFoundation/VideoToolbox with MLX integration.
 
-## Features
+## Usage
 
-- Hardware-accelerated frame extraction using Apple's VideoToolbox
-- Stream frames in real time via callback or queue
+```python
+import videoextractor
+
+# Simple iteration
+with videoextractor.open("video.mp4") as frames:
+    for frame in frames:
+        # frame is MLX array (height, width, 4) BGRA format
+        process(frame)
+
+# Or direct extraction
+extractor = videoextractor.FrameExtractor("video.mp4")
+for frame in extractor:
+    process(frame)
+```
 
 ## Installation
 
-Let `poetry` handle the installation and building of the package:
 ```bash
-poetry install -v --no-cache
+# [WIP - Installation process will be simplified]
+poetry run videoextractor/build/rebuild.sh
+poetry install -v
 ```
 
-Or build manually with CMake:
+## Key Features
 
-```bash
-cd videoextractor
-mkdir build && cd build
-cmake ..
-cmake --build . --config Debug
-
-poetry run pip install -e .
-```
+- **Hardware acelerated**: Zero-copy extraction using VideoToolbox with Metal compatibility
+- **MLX native**: Direct integration with MLX arrays for GPU-ready processing
+- **Optimized bindings**: `nanobind` extension with internal batching and GIL release for maximum throughput
 
 ## Architecture
 
-The project uses:
-- **Objective-C++** for interfacing with Apple frameworks (AVFoundation, VideoToolbox)
-- **nanobind** for creating Python bindings with minimal overhead
+The extension implements a three-layer architecture optimized for performance:
+
+**C++ Core** (`frame_extractor.h/mm`)
+- Minimal interface with only essential operations (open, extract_batch, reset)
+- Direct CVPixelBuffer to memory copy with fast-path optimization
+- Cached video properties and frame-level seeking support
+
+**Objective-C++ Backend**
+- AVFoundation/VideoToolbox integration with hardware acceleration
+- IOSurface backing and Metal compatibility for GPU transfers
+- Native BGRA format to avoid color conversion overhead
+
+**Python Bindings** (`bindings.cpp`)
+- Custom iterator using nanobind for minimal overhead
+- Direct buffer protocol integration with MLX arrays
+- Automatic batch management transparent to users
 
 ## License
 

@@ -1,35 +1,104 @@
+"""
+Hardware-accelerated video frame extraction for Apple Silicon with MLX.
+
+Example usage:
+    import videoextractor
+
+    # Simple iteration
+    extractor = videoextractor.FrameExtractor()
+    extractor.open("video.mp4")
+    for frame in extractor:
+        # frame is an MLX array of shape (height, width, 4) with BGRA data
+        process_frame(frame)
+
+    # Or using context manager
+    with videoextractor.open("video.mp4") as frames:
+        for frame in frames:
+            process_frame(frame)
+"""
 
 import mlx.core as mx
-from .build._videoextractor import FrameExtractor
+from .build._videoextractor import FrameExtractor as _FrameExtractor
 
-__version__ = "0.2.0"
-__all__ = ["FrameExtractor", "stream_frames_mlx"]
+__version__ = "0.3.0"
+__all__ = ["FrameExtractor", "open", "extract_all"]
 
 
-def stream_frames_mlx(
-    extractor: FrameExtractor,
-    start_time: float = 0.0,
-    end_time: float = 0.0,
-    internal_batch: int = 32
-):
+class FrameExtractor(_FrameExtractor):
     """
-    Generator that yields MLX frames (BGRA, uint8) one at a time for maximum performance.
+    High-performance video frame extractor using AVFoundation/VideoToolbox.
+
+    Frames are returned as MLX arrays with shape (height, width, 4) and dtype uint8.
+    The channel order is BGRA (native macOS format for best performance).
+    """
+
+    def __init__(self, path=None):
+        """
+        Initialize extractor and optionally open a video file.
+
+        Args:
+            path: Optional path to video file
+        """
+        super().__init__()
+        if path:
+            if not super().open(path):
+                raise RuntimeError(f"Failed to open video: {path}")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        # C++ destructor handles cleanup automatically
+        pass
+
+
+def open(path):
+    """
+    Open a video file for frame extraction.
+
     Args:
-        extractor: FrameExtractor instance with an open video
-        start_time: Start timestamp in seconds (default: 0.0)
-        end_time: End timestamp in seconds (default: 0.0 for end of video)
-        internal_batch: Internal batch size for efficiency (default: 32)
-    Yields:
-        MLX array of shape (height, width, 4), dtype=uint8 for each frame
+        path: Path to video file
+
+    Returns:
+        FrameExtractor instance configured for iteration
+
+    Example:
+        with videoextractor.open("video.mp4") as frames:
+            for frame in frames:
+                # Process MLX array
+                pass
     """
-    if not extractor.start_streaming(start_time, end_time):
-        raise RuntimeError("Failed to start streaming")
-    width = extractor.width
-    height = extractor.height
-    buf = mx.zeros((internal_batch, height, width, 4), dtype=mx.uint8)
-    while extractor.is_streaming():
-        frames_written = extractor.next_frames_batch_to_buffer(buf, internal_batch)
-        if frames_written == 0:
+    return FrameExtractor(path)
+
+
+def extract_all(path, batch_size=32):
+    """
+    Extract all frames from a video as a single MLX array.
+
+    WARNING: This loads the entire video into memory. Only use for small videos.
+
+    Args:
+        path: Path to video file
+        batch_size: Internal batch size for extraction (default: 32)
+
+    Returns:
+        MLX array of shape (num_frames, height, width, 4) with BGRA data
+    """
+    extractor = FrameExtractor(path)
+    total = extractor.total_frames
+
+    # Pre-allocate full array
+    frames = mx.zeros((total, extractor.height, extractor.width, 4), dtype=mx.uint8)
+
+    # Extract in batches directly into the array
+    extracted = 0
+    while extracted < total:
+        batch_frames = min(batch_size, total - extracted)
+        batch_view = frames[extracted:extracted + batch_frames]
+        n = extractor.extract_batch_raw(batch_view, batch_frames)
+        if n == 0:
             break
-        for i in range(frames_written):
-            yield buf[i]
+        extracted += n
+
+    # Return only the frames we actually extracted
+    return frames[:extracted]

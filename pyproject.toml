@@ -23,4 +23,3 @@ setuptools = ">=80.8"
 ipython = ">=9.5"
 nanobind = ">=2.9"
 scikit-build-core = ">=0.11"
-
