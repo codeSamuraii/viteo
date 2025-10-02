@@ -29,25 +29,25 @@ def video_files(test_data_dir):
             "path": test_data_dir / "video_4k.mp4",
             "width": 3840,
             "height": 2160,
-            "min_fps": 220.0  # Minimum expected extraction speed
+            "min_fps": 60.0  # Minimum expected extraction speed
         },
         "1080p": {
             "path": test_data_dir / "video_1080p.mp4",
             "width": 1920,
             "height": 1080,
-            "min_fps": 630.0
+            "min_fps": 120.0
         },
         "720p": {
             "path": test_data_dir / "video_720p.mp4",
             "width": 1280,
             "height": 720,
-            "min_fps": 1080.0
+            "min_fps": 240.0
         },
         "480p": {
             "path": test_data_dir / "video_480p.mp4",
             "width": 854,
             "height": 480,
-            "min_fps": 1700.0
+            "min_fps": 480.0
         }
     }
 

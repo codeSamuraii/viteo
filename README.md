@@ -19,7 +19,15 @@ for frame in extractor:
     process(frame)
 ```
 
-## Development
+## Installation
+
+> **PyPI package coming very soon!**
+
+```bash
+git clone https://github.com/codeSamuraii/viteo
+cd viteo
+pip install -v -e .
+```
 
 Building/rebuilding the package in editable mode:
 ```bash

@@ -99,6 +99,11 @@ public:
                 (id)kCVPixelBufferPixelFormatTypeKey: @(kCVPixelFormatType_32BGRA),
                 (id)kCVPixelBufferMetalCompatibilityKey: @YES,
                 (id)kCVPixelBufferIOSurfacePropertiesKey: @{},
+                // Add VideoToolbox hardware acceleration hints
+                AVVideoDecompressionPropertiesKey: @{
+                    (id)kVTDecompressionPropertyKey_UsingHardwareAcceleratedVideoDecoder: @YES,
+                    (id)kVTDecompressionPropertyKey_PropagatePerFrameHDRDisplayMetadata: @NO,
+                },
             };
 
             output = [[AVAssetReaderTrackOutput alloc]
