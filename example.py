@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Test script for optimized video extractor."""
 
+import pathlib
 import time
 import mlx.core as mx
 import viteo
@@ -51,8 +52,7 @@ def test_basic_extraction(video_path):
 
 def benchmark_extraction(video_path, num_frames=500):
     """Benchmark frame extraction speed."""
-    print(f"\nBenchmarking extraction of {num_frames} frames...")
-    print("-" * 50)
+    print("-" * 20, str(video_path.name), "-" * 20)
 
     extractor = viteo.FrameExtractor(video_path)
 
@@ -77,44 +77,29 @@ def benchmark_extraction(video_path, num_frames=500):
     fps = frames_extracted / elapsed
 
     print(f"Results:")
-    print(f"  Frames extracted: {frames_extracted}")
-    print(f"  Time: {elapsed:.3f}s")
-    print(f"  Speed: {fps:.1f} fps")
-    print(f"  Per frame: {1000*elapsed/frames_extracted:.2f}ms")
+    print(f"* {frames_extracted} frames extracted in {elapsed:.3f}s")
+    print(f"* {fps:.1f} fps / {1000*elapsed/frames_extracted:.3f}ms per frame\n")
 
 
 if __name__ == "__main__":
     import sys
 
-    if len(sys.argv) > 1:
-        video_path = sys.argv[1]
-    else:
-        # Try to find a sample video
-        import os
-        possible_paths = [
-            "sample.mp4",
-            "test.mp4",
-            "video.mp4",
-            "../sample.mp4",
-            "../test.mp4",
-            "../video.mp4"
-        ]
-        video_path = None
-        for path in possible_paths:
-            if os.path.exists(path):
-                video_path = path
-                break
-
-        if not video_path:
-            print("Usage: python test_viteo.py <video_file>")
-            print("No video file provided and no sample video found.")
-            sys.exit(1)
-
-    try:
-        test_basic_extraction(video_path)
-        benchmark_extraction(video_path)
-    except Exception as e:
-        print(f"\n✗ Error: {e}")
-        import traceback
-        traceback.print_exc()
+    if not len(sys.argv) > 1:
+        print("Usage: python test_viteo.py <video_file> [<video_file> ...]")
+        print("x No video file provided.")
         sys.exit(1)
+
+    for input_path in sys.argv[1:]:
+        video_path = pathlib.Path(input_path)
+        if not video_path.is_file() or not video_path.exists():
+            print("x Invalid path:", str(video_path))
+            continue
+
+        try:
+            # test_basic_extraction(video_path)
+            benchmark_extraction(video_path)
+        except Exception as e:
+            print(f"\n✗ Error: {e}")
+            import traceback
+            traceback.print_exc()
+            sys.exit(1)

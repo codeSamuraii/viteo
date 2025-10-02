@@ -19,12 +19,12 @@ for frame in extractor:
     process(frame)
 ```
 
-## Installation
+## Development
 
+Building/rebuilding the package in editable mode:
 ```bash
-# [WIP - Installation process will be simplified]
-poetry run viteo/build/rebuild.sh
-poetry install -v
+rm -rf dist/
+pip install -e . --force-reinstall --no-deps
 ```
 
 ## Key Features

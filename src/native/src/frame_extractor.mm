@@ -22,13 +22,9 @@ public:
     int64_t cachedTotalFrames = 0;
     int64_t currentFrame = 0;
 
-    // Prefetch queue for async frame loading
-    dispatch_queue_t prefetchQueue;
     std::atomic<bool> isOpen{false};
 
-    Impl() {
-        prefetchQueue = dispatch_queue_create("viteo.prefetch", DISPATCH_QUEUE_SERIAL);
-    }
+    Impl() {}
 
     ~Impl() {
         close();

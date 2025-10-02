@@ -11,22 +11,31 @@ public:
     FrameExtractor();
     ~FrameExtractor();
 
-    // Open video file - returns false on failure
+    /**
+     * @brief Opens a video file - needed before extracting
+     * @param path Path to the file
+     * @return A boolean indicating success or failure
+     */
     bool open(const std::string& path);
 
-    // Video properties
+    /* Video properties */
     int width() const;
     int height() const;
     double fps() const;
     int64_t total_frames() const;
 
-    // Extract next batch of frames directly into buffer
-    // buffer: pre-allocated BGRA buffer (batch_size, height, width, 4)
-    // batch_size: max frames to extract
-    // Returns: number of frames actually extracted (0 when done)
+    /**
+     * @brief Extract next batch of frames directly into buffer
+     * @param buffer Pre-allocated BGRA buffer (batch_size, height, width, 4)
+     * @param batch_size Maximum frames to extract
+     * @return Number of frames actually extracted (0 when done)
+     */
     size_t extract_batch(uint8_t* buffer, size_t batch_size);
 
-    // Reset to beginning or specific frame
+    /**
+     * @brief Reset to beginning or specific frame
+     * @param frame_index Seek to a specific index
+     */
     void reset(int64_t frame_index = 0);
 
 private:
