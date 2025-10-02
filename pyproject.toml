@@ -4,7 +4,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "viteo"
-version = "0.1.0b"
+version = "0.1.0c"
 description = "Hardware-accelerated video frame extraction for Apple Silicon"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -41,10 +41,10 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/codeSamuraii/viteo-package"
-Repository = "https://github.com/codeSamuraii/viteo-package"
-Documentation = "https://github.com/codeSamuraii/viteo-package#readme"
-Issues = "https://github.com/codeSamuraii/viteo-package/issues"
+Homepage = "https://github.com/codeSamuraii/viteo"
+Repository = "https://github.com/codeSamuraii/viteo"
+Documentation = "https://github.com/codeSamuraii/viteo#readme"
+Issues = "https://github.com/codeSamuraii/viteo/issues"
 
 [tool.scikit-build]
 cmake.version = ">=3.18"
