@@ -18,7 +18,7 @@ Example usage:
 """
 import pathlib
 import mlx.core as mx
-from _viteo import FrameExtractor as _FrameExtractor
+from _viteo import FrameExtractor as _FrameExtractor, FrameIterator as _FrameIterator
 from typing import Optional, Iterator
 
 __version__ = "0.1.0"
@@ -41,9 +41,41 @@ class FrameExtractor(_FrameExtractor):
             path: Optional path to video file
         """
         super().__init__()
+        self._iterator = None
+        self._batch_size = 32
+
         if path:
             if not super().open(str(path)):
                 raise RuntimeError(f"Failed to open video: {path}")
+
+    def _create_iterator(self):
+        """Create a new FrameIterator with a fresh buffer."""
+        buffer = mx.zeros((self._batch_size, self.height, self.width, 4), mx.uint8)
+        return _FrameIterator(self, buffer, self._batch_size)
+
+    def reset(self, frame_index: int = 0):
+        """
+        Reset to beginning or specific frame.
+
+        Args:
+            frame_index: Frame index to seek to (default: 0)
+        """
+        super().reset(frame_index)
+        # Reset the iterator state
+        self._iterator = None
+
+    def __iter__(self):
+        """Return self as iterator."""
+        # Create iterator on first call or after reset
+        if self._iterator is None:
+            self._iterator = self._create_iterator()
+        return self
+
+    def __next__(self):
+        """Get next frame."""
+        if self._iterator is None:
+            self._iterator = self._create_iterator()
+        return next(self._iterator)
 
     def __enter__(self):
         return self

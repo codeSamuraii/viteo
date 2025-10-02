@@ -113,23 +113,6 @@ NB_MODULE(_viteo, m) {
             },
             nb::arg("buffer"), nb::arg("batch_size"),
             "Extract frames directly into MLX buffer (low-level)")
-        .def("__iter__",
-            [](nb::object self) {
-                FrameExtractor& ext = nb::cast<FrameExtractor&>(self);
-
-                nb::module_ mlx = nb::module_::import_("mlx.core");
-                nb::object mx_zeros = mlx.attr("zeros");
-                nb::object mx_uint8 = mlx.attr("uint8");
-
-                size_t batch_size = 32;
-                nb::object buffer = mx_zeros(
-                    nb::make_tuple(batch_size, ext.height(), ext.width(), 4),
-                    mx_uint8);
-
-                return nb::cast(new FrameIterator(&ext, buffer, batch_size),
-                    nb::rv_policy::take_ownership);
-            },
-            "Return iterator over frames")
         .def("__repr__",
             [](const FrameExtractor& self) {
                 return "<FrameExtractor " + std::to_string(self.width()) + "x" +
@@ -138,6 +121,9 @@ NB_MODULE(_viteo, m) {
             });
 
     nb::class_<FrameIterator>(m, "FrameIterator")
+        .def(nb::init<FrameExtractor*, nb::object, size_t>(),
+            nb::arg("extractor"), nb::arg("buffer"), nb::arg("batch_size"),
+            "Create iterator for frame extraction")
         .def("__next__", &FrameIterator::next)
         .def("__iter__", [](nb::object self) { return self; });
 }
