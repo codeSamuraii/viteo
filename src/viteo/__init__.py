@@ -20,7 +20,7 @@ Example usage:
 import mlx.core as mx
 from _viteo import FrameExtractor as _FrameExtractor
 
-__version__ = "0.3.0"
+__version__ = "0.1.0"
 __all__ = ["FrameExtractor", "open", "extract_all"]
 
 

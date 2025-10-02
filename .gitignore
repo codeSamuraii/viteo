@@ -60,6 +60,8 @@ venv.bak/
 *.swo
 *~
 .DS_Store
+CLAUDE.md
+PYPI_GUIDE.md
 
 # CMake
 CMakeFiles/
