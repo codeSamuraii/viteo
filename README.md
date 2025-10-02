@@ -1,19 +1,51 @@
-# viteo
+<div align="center">
 
-High-performance video frame extraction for Apple Silicon using AVFoundation/VideoToolbox with MLX integration.
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1" height="200px" width="400px" viewBox="0 0 400 100">
+  <defs>
+    <linearGradient x1="87.9681034%" y1="50%" x2="1.27351722%" y2="50%" id="linearGradient-1">
+      <stop offset="0%" stop-color="#174889"></stop>
+      <stop offset="67.6877392%" stop-color="#7c46ce"></stop>
+      <stop offset="100%" stop-color="#c1c8ca"></stop>
+    </linearGradient>
+  </defs>
+  <g id="Page-1" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd" font-family="Arial-BoldMT, Arial" font-weight="bold">
+    <g id="gh-banner">
+      <text id="gh-title-reflection" fill="url(#linearGradient-1)" font-size="72">
+        <tspan x="200" y="120" text-anchor="middle">viteo</tspan>
+      </text>
+    </g>
+  </g>
+</svg>
 
-## Usage
+**High-performance video frame extraction for Apple Silicon**
+
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Apple Silicon](https://img.shields.io/badge/platform-Apple%20Silicon-lightgrey.svg)](https://www.apple.com/mac/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+</div>
+
+---
+
+- **Hardware-accelerated** extraction using AVFoundation/VideoToolbox
+- **MLX native** with direct BGRA frame copy to `mx.array`
+- **Lightweight bindings** using `nanobind` and GIL release
+- **Pythonic** interface with simple iterators and context managers
+
+<br />
+
+## Getting started
 
 ```python
 import viteo
 
-# Simple iteration
+# Simple iteration with context manager
 with viteo.open("video.mp4") as frames:
     for frame in frames:
         # frame is MLX array (height, width, 4) BGRA format
         process(frame)
 
-# Or direct extraction
+# Direct extraction
 extractor = viteo.FrameExtractor("video.mp4")
 for frame in extractor:
     process(frame)
@@ -21,7 +53,9 @@ for frame in extractor:
 
 ## Installation
 
-> **PyPI package coming very soon!**
+> **Note:** PyPI package coming very soon!
+
+### From source
 
 ```bash
 git clone https://github.com/codeSamuraii/viteo
@@ -29,37 +63,15 @@ cd viteo
 pip install -v -e .
 ```
 
-Building/rebuilding the package in editable mode:
+#### Rebuilding
+
 ```bash
 rm -rf dist/
 pip install -e . --force-reinstall --no-deps
 ```
 
-## Key Features
+### Requirements
 
-- **Hardware acelerated**: Zero-copy extraction using VideoToolbox with Metal compatibility
-- **MLX native**: Direct integration with MLX arrays for GPU-ready processing
-- **Optimized bindings**: `nanobind` extension with internal batching and GIL release for maximum throughput
-
-## Architecture
-
-The extension implements a three-layer architecture optimized for performance:
-
-**C++ Core** (`frame_extractor.h/mm`)
-- Minimal interface with only essential operations (open, extract_batch, reset)
-- Direct CVPixelBuffer to memory copy with fast-path optimization
-- Cached video properties and frame-level seeking support
-
-**Objective-C++ Backend**
-- AVFoundation/VideoToolbox integration with hardware acceleration
-- IOSurface backing and Metal compatibility for GPU transfers
-- Native BGRA format to avoid color conversion overhead
-
-**Python Bindings** (`bindings.cpp`)
-- Custom iterator using nanobind for minimal overhead
-- Direct buffer protocol integration with MLX arrays
-- Automatic batch management transparent to users
-
-## License
-
-MIT
+- macOS with Apple Silicon (M1/M2/M3/M4)
+- Python 3.8+
+- MLX framework
