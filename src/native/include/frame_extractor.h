@@ -3,40 +3,36 @@
 
 #include <string>
 #include <cstdint>
+#include <vector>
 
 namespace viteo {
 
+/// High-performance video frame extractor for Apple Silicon
 class FrameExtractor {
 public:
     FrameExtractor();
     ~FrameExtractor();
 
-    /**
-     * @brief Opens a video file - needed before extracting
-     * @param path Path to the file
-     * @return A boolean indicating success or failure
-     */
+    /// Open video file for extraction
     bool open(const std::string& path);
 
-    /* Video properties */
-    int width() const;
-    int height() const;
-    double fps() const;
-    int64_t total_frames() const;
+    /// Get next frame as BGRA data (returns nullptr when done)
+    uint8_t* next_frame();
 
-    /**
-     * @brief Extract next batch of frames directly into buffer
-     * @param buffer Pre-allocated BGRA buffer (batch_size, height, width, 4)
-     * @param batch_size Maximum frames to extract
-     * @return Number of frames actually extracted (0 when done)
-     */
-    size_t extract_batch(uint8_t* buffer, size_t batch_size);
-
-    /**
-     * @brief Reset to beginning or specific frame
-     * @param frame_index Seek to a specific index
-     */
+    /// Reset to beginning or specific frame index
     void reset(int64_t frame_index = 0);
+
+    /// Video width in pixels
+    int width() const;
+
+    /// Video height in pixels
+    int height() const;
+
+    /// Video frames per second
+    double fps() const;
+
+    /// Estimated total number of frames
+    int64_t total_frames() const;
 
 private:
     class Impl;

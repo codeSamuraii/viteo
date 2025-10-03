@@ -3,11 +3,10 @@
 #import <CoreMedia/CoreMedia.h>
 #import <VideoToolbox/VideoToolbox.h>
 #include "frame_extractor.h"
-#include <atomic>
-#include <dispatch/dispatch.h>
 
 namespace viteo {
 
+/// Internal implementation with AVFoundation
 class FrameExtractor::Impl {
 public:
     AVAsset* asset = nil;
@@ -15,14 +14,19 @@ public:
     AVAssetReaderTrackOutput* output = nil;
     AVAssetTrack* videoTrack = nil;
 
-    // Video properties cached
     int cachedWidth = 0;
     int cachedHeight = 0;
     double cachedFPS = 0.0;
     int64_t cachedTotalFrames = 0;
     int64_t currentFrame = 0;
 
-    std::atomic<bool> isOpen{false};
+    // Internal batch buffer for performance
+    static constexpr size_t BATCH_SIZE = 16;
+    std::vector<uint8_t> batch_buffer;
+    size_t batch_count = 0;
+    size_t batch_index = 0;
+
+    bool isOpen = false;
 
     Impl() {}
 
@@ -55,7 +59,6 @@ public:
             asset = [AVAsset assetWithURL:url];
             if (!asset) return false;
 
-            // Use the deprecated API for now as we need synchronous access
             #pragma clang diagnostic push
             #pragma clang diagnostic ignored "-Wdeprecated-declarations"
             NSArray* tracks = [asset tracksWithMediaType:AVMediaTypeVideo];
@@ -65,17 +68,19 @@ public:
 
             videoTrack = tracks[0];
 
-            // Cache properties
             CGSize size = [videoTrack naturalSize];
             cachedWidth = static_cast<int>(size.width);
             cachedHeight = static_cast<int>(size.height);
             cachedFPS = [videoTrack nominalFrameRate];
 
-            // Estimate total frames
             CMTime duration = [asset duration];
             cachedTotalFrames = static_cast<int64_t>(
                 CMTimeGetSeconds(duration) * cachedFPS
             );
+
+            // Allocate batch buffer
+            size_t frame_size = cachedWidth * cachedHeight * 4;
+            batch_buffer.resize(BATCH_SIZE * frame_size);
 
             isOpen = true;
             return setupReader(0);
@@ -135,53 +140,50 @@ public:
             }
 
             currentFrame = startFrame;
+            batch_count = 0;
+            batch_index = 0;
             return true;
         }
     }
 
-    size_t extractBatch(uint8_t* buffer, size_t batchSize) {
-        if (!reader || !output || !isOpen) return 0;
+    /// Load next batch of frames into internal buffer
+    void loadBatch() {
+        if (!reader || !output || !isOpen) {
+            batch_count = 0;
+            return;
+        }
 
-        size_t framesExtracted = 0;
-        size_t frameSize = cachedWidth * cachedHeight * 4;
+        size_t frame_size = cachedWidth * cachedHeight * 4;
+        batch_count = 0;
 
         @autoreleasepool {
-            while (framesExtracted < batchSize) {
-                if (reader.status != AVAssetReaderStatusReading) {
-                    break;
-                }
+            while (batch_count < BATCH_SIZE) {
+                if (reader.status != AVAssetReaderStatusReading) break;
 
                 CMSampleBufferRef sampleBuffer = [output copyNextSampleBuffer];
-                if (!sampleBuffer) {
-                    break;
-                }
+                if (!sampleBuffer) break;
 
                 CVImageBufferRef imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer);
                 if (imageBuffer) {
-                    // Lock with read-only flag for performance
                     CVPixelBufferLockBaseAddress(imageBuffer, kCVPixelBufferLock_ReadOnly);
 
                     uint8_t* src = (uint8_t*)CVPixelBufferGetBaseAddress(imageBuffer);
                     size_t bytesPerRow = CVPixelBufferGetBytesPerRow(imageBuffer);
+                    uint8_t* dst = batch_buffer.data() + (batch_count * frame_size);
 
-                    // Destination for this frame
-                    uint8_t* dst = buffer + (framesExtracted * frameSize);
-
-                    // Fast path: if stride matches, copy entire frame at once
                     if (bytesPerRow == cachedWidth * 4) {
-                        memcpy(dst, src, frameSize);
+                        memcpy(dst, src, frame_size);
                     } else {
-                        // Row-by-row copy for padded buffers
-                        size_t copyWidth = cachedWidth * 4;
+                        size_t copy_width = cachedWidth * 4;
                         for (int y = 0; y < cachedHeight; y++) {
-                            memcpy(dst + y * copyWidth,
+                            memcpy(dst + y * copy_width,
                                    src + y * bytesPerRow,
-                                   copyWidth);
+                                   copy_width);
                         }
                     }
 
                     CVPixelBufferUnlockBaseAddress(imageBuffer, kCVPixelBufferLock_ReadOnly);
-                    framesExtracted++;
+                    batch_count++;
                     currentFrame++;
                 }
 
@@ -189,7 +191,23 @@ public:
             }
         }
 
-        return framesExtracted;
+        batch_index = 0;
+    }
+
+    /// Get pointer to next frame from batch
+    uint8_t* nextFrame() {
+        if (!isOpen) return nullptr;
+
+        // Load new batch if needed
+        if (batch_index >= batch_count) {
+            loadBatch();
+            if (batch_count == 0) return nullptr;
+        }
+
+        size_t frame_size = cachedWidth * cachedHeight * 4;
+        uint8_t* frame_ptr = batch_buffer.data() + (batch_index * frame_size);
+        batch_index++;
+        return frame_ptr;
     }
 
     void reset(int64_t frameIndex) {
@@ -206,17 +224,17 @@ bool FrameExtractor::open(const std::string& path) {
     return impl->open(path);
 }
 
-int FrameExtractor::width() const { return impl->cachedWidth; }
-int FrameExtractor::height() const { return impl->cachedHeight; }
-double FrameExtractor::fps() const { return impl->cachedFPS; }
-int64_t FrameExtractor::total_frames() const { return impl->cachedTotalFrames; }
-
-size_t FrameExtractor::extract_batch(uint8_t* buffer, size_t batch_size) {
-    return impl->extractBatch(buffer, batch_size);
+uint8_t* FrameExtractor::next_frame() {
+    return impl->nextFrame();
 }
 
 void FrameExtractor::reset(int64_t frame_index) {
     impl->reset(frame_index);
 }
+
+int FrameExtractor::width() const { return impl->cachedWidth; }
+int FrameExtractor::height() const { return impl->cachedHeight; }
+double FrameExtractor::fps() const { return impl->cachedFPS; }
+int64_t FrameExtractor::total_frames() const { return impl->cachedTotalFrames; }
 
 } // namespace viteo

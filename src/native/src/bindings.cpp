@@ -1,129 +1,69 @@
 #include <nanobind/nanobind.h>
 #include <nanobind/stl/string.h>
 #include "frame_extractor.h"
-#include <stdexcept>
 #include <Python.h>
 
 namespace nb = nanobind;
 using namespace viteo;
 
-class FrameIterator {
-private:
-    FrameExtractor* extractor;
-    nb::object buffer_obj;
-    uint8_t* buffer_ptr;
-    size_t batch_size;
-    size_t current_batch_size;
-    size_t current_index;
-    int width, height;
-    nb::object mlx_module;
-    nb::object mx_array;
+/// Create MLX array from raw BGRA buffer
+nb::object create_mlx_array(uint8_t* data, int height, int width) {
+    if (!data) return nb::none();
 
-public:
-    FrameIterator(FrameExtractor* ext, nb::object buf, size_t batch)
-        : extractor(ext), buffer_obj(buf), batch_size(batch),
-          current_batch_size(0), current_index(0) {
+    // Import MLX
+    nb::object mlx = nb::module_::import_("mlx.core");
+    nb::object mx_array = mlx.attr("array");
+    nb::object mx_uint8 = mlx.attr("uint8");
 
-        width = extractor->width();
-        height = extractor->height();
+    // Create memory view
+    size_t size = height * width * 4;
+    nb::object memview = nb::steal(PyMemoryView_FromMemory(
+        reinterpret_cast<char*>(data), size, PyBUF_READ
+    ));
 
-        mlx_module = nb::module_::import_("mlx.core");
-        mx_array = mlx_module.attr("array");
-
-        Py_buffer view;
-        if (PyObject_GetBuffer(buffer_obj.ptr(), &view, PyBUF_WRITABLE | PyBUF_C_CONTIGUOUS) != 0) {
-            throw std::runtime_error("Failed to get buffer from MLX array");
-        }
-        buffer_ptr = static_cast<uint8_t*>(view.buf);
-        PyBuffer_Release(&view);
-
-        load_next_batch();
-    }
-
-    void load_next_batch() {
-        nb::gil_scoped_release release;
-        current_batch_size = extractor->extract_batch(buffer_ptr, batch_size);
-        current_index = 0;
-    }
-
-    nb::object next() {
-        if (current_index >= current_batch_size) {
-            if (current_batch_size == 0) {
-                throw nb::stop_iteration();
-            }
-            load_next_batch();
-            if (current_batch_size == 0) {
-                throw nb::stop_iteration();
-            }
-        }
-
-        size_t frame_size = width * height * 4;
-        size_t offset = current_index * frame_size;
-        nb::object py_memview = nb::steal(PyMemoryView_FromMemory(
-            reinterpret_cast<char*>(buffer_ptr + offset),
-            frame_size, PyBUF_READ
-        ));
-
-        nb::object mx_uint8 = mlx_module.attr("uint8");
-        nb::object frame = mx_array(py_memview, mx_uint8);
-
-        nb::object shape = nb::make_tuple(height, width, 4);
-        frame = frame.attr("reshape")(shape);
-
-        current_index++;
-        return frame;
-    }
-};
+    // Create MLX array and reshape
+    nb::object arr = mx_array(memview, mx_uint8);
+    return arr.attr("reshape")(nb::make_tuple(height, width, 4));
+}
 
 NB_MODULE(_viteo, m) {
-    m.doc() = "Hardware-accelerated video frame extraction for Apple Silicon with MLX";
+    m.doc() = "Hardware-accelerated video frame extraction for Apple Silicon";
 
     nb::class_<FrameExtractor>(m, "FrameExtractor")
-        .def(nb::init<>())
-        .def("open", &FrameExtractor::open,
-            nb::arg("path"),
-            "Open a video file")
-        .def_prop_ro("width", &FrameExtractor::width,
-            "Video width in pixels")
-        .def_prop_ro("height", &FrameExtractor::height,
-            "Video height in pixels")
-        .def_prop_ro("fps", &FrameExtractor::fps,
-            "Video frames per second")
-        .def_prop_ro("total_frames", &FrameExtractor::total_frames,
-            "Estimated total number of frames")
-        .def("reset", &FrameExtractor::reset,
-            nb::arg("frame_index") = 0,
-            "Reset to beginning or specific frame")
-        .def("get_next_batch",
-            [](FrameExtractor& self, nb::handle buffer, size_t batch_size) {
-                Py_buffer view;
-                if (PyObject_GetBuffer(buffer.ptr(), &view, PyBUF_WRITABLE | PyBUF_C_CONTIGUOUS) != 0) {
-                    throw std::runtime_error("Buffer must be writable and C-contiguous");
-                }
-
-                uint8_t* ptr = static_cast<uint8_t*>(view.buf);
-                size_t frames_extracted;
+        .def(nb::init<>(), "Create new frame extractor")
+        .def("open", &FrameExtractor::open, nb::arg("path"),
+            "Open video file for extraction")
+        .def("next_frame",
+            [](FrameExtractor& self) -> nb::object {
+                uint8_t* frame_data;
                 {
                     nb::gil_scoped_release release;
-                    frames_extracted = self.extract_batch(ptr, batch_size);
+                    frame_data = self.next_frame();
                 }
-
-                PyBuffer_Release(&view);
-                return frames_extracted;
+                return create_mlx_array(frame_data, self.height(), self.width());
             },
-            nb::arg("buffer"), nb::arg("batch_size"),
-            "Extract frames directly into MLX buffer (low-level)")
+            "Get next frame as MLX array (None when done)")
+        .def("reset", &FrameExtractor::reset, nb::arg("frame_index") = 0,
+            "Reset to beginning or specific frame")
+        .def_prop_ro("width", &FrameExtractor::width, "Video width")
+        .def_prop_ro("height", &FrameExtractor::height, "Video height")
+        .def_prop_ro("fps", &FrameExtractor::fps, "Frames per second")
+        .def_prop_ro("total_frames", &FrameExtractor::total_frames, "Total frames")
+        .def("__iter__", [](nb::object self) { return self; })
+        .def("__next__",
+            [](FrameExtractor& self) -> nb::object {
+                uint8_t* frame_data;
+                {
+                    nb::gil_scoped_release release;
+                    frame_data = self.next_frame();
+                }
+                if (!frame_data) throw nb::stop_iteration();
+                return create_mlx_array(frame_data, self.height(), self.width());
+            })
         .def("__repr__",
             [](const FrameExtractor& self) {
                 return "<FrameExtractor " + std::to_string(self.width()) + "x" +
                        std::to_string(self.height()) + " @ " +
                        std::to_string(self.fps()) + " fps>";
             });
-
-    nb::class_<FrameIterator>(m, "FrameIterator")
-        .def(nb::init<FrameExtractor*, nb::object, size_t>(),
-            nb::arg("extractor"), nb::arg("buffer"), nb::arg("batch_size"),
-            "Create iterator for frame extraction")
-        .def("__next__", &FrameIterator::next)
-        .def("__iter__", [](nb::object self) { return self; });
 }

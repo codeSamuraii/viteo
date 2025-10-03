@@ -4,7 +4,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "viteo"
-version = "0.1.0c"
+version = "0.1.1"
 description = "Hardware-accelerated video frame extraction for Apple Silicon"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -12,10 +12,15 @@ license = {text = "MIT"}
 authors = [
     {name = "Rémi Héneault", email = "remi@heneault.fr"}
 ]
-keywords = ["video", "frame", "apple", "mac", "hardware-acceleration", "mlx", "avfoundation", "videotoolbox"]
+keywords = [
+    "video", "frame-extraction", "apple-silicon", "mlx",
+    "avfoundation", "videotoolbox", "hardware-acceleration",
+    "computer-vision", "video-processing"
+]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
     "Operating System :: MacOS :: MacOS X",
     "Programming Language :: C++",
@@ -25,9 +30,10 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: Implementation :: CPython",
     "Topic :: Multimedia :: Video",
-    "Topic :: Software Development :: Libraries",
-    "Topic :: Utilities",
+    "Topic :: Scientific/Engineering :: Image Processing",
+    "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
     "mlx>=0.5.0",
@@ -36,8 +42,11 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
-    "rich>=13.0",
-    "numpy>=1.24.0",
+    "opencv-python>=4.8.0",
+]
+test = [
+    "pytest>=8.0",
+    "opencv-python>=4.8.0",
 ]
 
 [project.urls]
@@ -48,9 +57,8 @@ Issues = "https://github.com/codeSamuraii/viteo/issues"
 
 [tool.scikit-build]
 cmake.version = ">=3.18"
-wheel.packages = ["src/viteo"]
-cmake.verbose = true
 cmake.build-type = "Release"
+wheel.packages = ["src/viteo"]
 minimum-version = "0.8.0"
 
 [tool.scikit-build.cmake.define]
@@ -67,3 +75,6 @@ archs = ["arm64"]
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
 ]
+cache_dir = "/tmp/pytest_cache"
+addopts = "-ra -v"
+testpaths = ["tests"]
