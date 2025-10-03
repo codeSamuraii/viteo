@@ -42,7 +42,7 @@ class FrameExtractor(_FrameExtractor):
         """
         super().__init__()
         self._iterator = None
-        self._batch_size = 32
+        self._batch_size = 8
 
         if path:
             if not super().open(str(path)):
@@ -61,12 +61,10 @@ class FrameExtractor(_FrameExtractor):
             frame_index: Frame index to seek to (default: 0)
         """
         super().reset(frame_index)
-        # Reset the iterator state
         self._iterator = None
 
     def __iter__(self):
         """Return self as iterator."""
-        # Create iterator on first call or after reset
         if self._iterator is None:
             self._iterator = self._create_iterator()
         return self
