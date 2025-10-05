@@ -40,6 +40,7 @@ NB_MODULE(_viteo, m) {
                     nb::gil_scoped_release release;
                     frame_data = self.next_frame();
                 }
+                if (!frame_data) return nb::none();
                 return create_mlx_array(frame_data, self.height(), self.width());
             },
             "Get next frame as MLX array (None when done)")

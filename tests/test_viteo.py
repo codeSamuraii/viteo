@@ -123,6 +123,38 @@ def test_iterator(sample_video):
         assert count == 10
 
 
+def test_run_to_end(sample_video):
+    """Test running through all frames to the end."""
+    path = sample_video["path"]
+    if not path.exists():
+        pytest.skip(f"Test video not found: {path}")
+
+    with viteo.open(path) as video:
+        frame_count = 0
+        for frame in video:
+            frame_count += 1
+
+    assert frame_count == video.total_frames
+
+
+def test_last_frame_is_none(sample_video):
+    path = sample_video["path"]
+    if not path.exists():
+        pytest.skip(f"Test video not found: {path}")
+
+    i = 0
+    with viteo.open(path) as video:
+        while True:
+            frame = video.next_frame()
+            if not isinstance(frame, mx.array):
+                break
+
+            i += 1
+
+        assert frame is None
+        assert i == video.total_frames
+
+
 def test_reset(sample_video):
     """Test reset functionality."""
     path = sample_video["path"]
