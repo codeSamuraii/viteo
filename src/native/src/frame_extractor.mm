@@ -7,7 +7,7 @@
 #include <iostream>
 
 #define DEBUG_LOG(msg) do { \
-    if (std::getenv("VITEO_DEBUG")) { \
+    if (debugLogging) { \
         std::cerr << "[viteo] " << msg << std::endl; \
     } \
 } while(0)
@@ -35,8 +35,12 @@ public:
     size_t batch_index = 0;
 
     bool isOpen = false;
+    bool debugLogging = false;
 
     Impl(size_t batch_size_param) : batch_size(batch_size_param) {
+        if (std::getenv("VITEO_DEBUG")) {
+            debugLogging = true;
+        }
         DEBUG_LOG("Setting batch size to " << batch_size);
     }
 
