@@ -30,7 +30,7 @@ NB_MODULE(_viteo, m) {
     m.doc() = "Hardware-accelerated video frame extraction for Apple Silicon";
 
     nb::class_<FrameExtractor>(m, "FrameExtractor")
-        .def(nb::init<>(), "Create new frame extractor")
+        .def(nb::init<size_t>(), nb::arg("batch_size") = 8, "Create new frame extractor")
         .def("open", &FrameExtractor::open, nb::arg("path"),
             "Open video file for extraction")
         .def("next_frame",
@@ -40,6 +40,7 @@ NB_MODULE(_viteo, m) {
                     nb::gil_scoped_release release;
                     frame_data = self.next_frame();
                 }
+                if (!frame_data) return nb::none();
                 return create_mlx_array(frame_data, self.height(), self.width());
             },
             "Get next frame as MLX array (None when done)")
