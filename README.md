@@ -51,14 +51,13 @@ cd viteo
 pip install -v -e .
 ```
 
-#### Rebuilding
-
+To rebuild after changes:
 ```bash
-rm -rf dist/
 pip install -e . --force-reinstall --no-deps
 ```
 
 ## Configuration
+### Logging
 
 You can enable debug logging with the `VITEO_DEBUG` environment variable:
 ```bash
@@ -74,11 +73,13 @@ $ VITEO_DEBUG=1 python example.py video_1080p.mp4
   ...
 ```
 
+### Batch size
+
 Internally, `viteo` passes frames to Python in batches for performance.
 The default batch size is 8 frames, but you can change it by passing the `batch_size` argument:
 ```python
-# Use larger batch size for better performance
-with viteo.open("video.mp4", batch_size=16) as frames:
+# Values between 2 and 16 are optimal
+with viteo.open("video.mp4", batch_size=2) as frames:
     for frame in frames:
         process(frame)
 ```
