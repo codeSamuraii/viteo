@@ -225,7 +225,6 @@ public:
         if (bytesPerRow == data_width) {
             memcpy(dst, src, data_size);
         } else {
-
             for (int y = 0; y < cachedHeight; y++) {
                 memcpy(dst + y * data_width,
                        src + y * bytesPerRow,

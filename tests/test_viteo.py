@@ -138,6 +138,7 @@ def test_run_to_end(sample_video):
 
 
 def test_last_frame_is_none(sample_video):
+    """Test that after all frames are read, the next frame is None and the frame count matches total_frames."""
     path = sample_video["path"]
     if not path.exists():
         pytest.skip(f"Test video not found: {path}")
