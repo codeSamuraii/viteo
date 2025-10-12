@@ -80,3 +80,4 @@ poetry.lock
 
 # scikit-build
 _cmake_test_compile/
+.github/instructions/keep-it-clean.instructions.md
