@@ -83,3 +83,7 @@ with viteo.open("video.mp4", batch_size=2) as frames:
     for frame in frames:
         process(frame)
 ```
+
+## Performance
+
+<img width="3568" height="2068" alt="benchmark_comparison" src="https://github.com/user-attachments/assets/51a7c00c-8777-4ccc-a7fb-8ae69f156afe" />
