@@ -19,23 +19,21 @@ import pathlib
 from _viteo import FrameExtractor as _FrameExtractor
 from typing import Optional
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 __all__ = ["FrameExtractor", "open"]
 
 
 class FrameExtractor(_FrameExtractor):
     """Hardware-accelerated video frame extractor for Apple Silicon."""
 
-    def __init__(self, path: Optional[str | pathlib.Path] = None, batch_size: int = 8):
+    def __init__(self, path: Optional[str | pathlib.Path] = None):
         """
         Initialize extractor and optionally open a video file.
 
         Args:
             path: Optional path to video file
-            batch_size: Number of frames to buffer internally (default: 8)
         """
-        super().__init__(batch_size)
-        self.batch_size = batch_size
+        super().__init__()
         if path:
             if not super().open(str(path)):
                 raise RuntimeError(f"Failed to open video: {path}")
@@ -47,20 +45,19 @@ class FrameExtractor(_FrameExtractor):
         pass
 
 
-def open(path: str | pathlib.Path, batch_size: int = 8) -> FrameExtractor:
+def open(path: str | pathlib.Path) -> FrameExtractor:
     """
     Open a video file for frame extraction.
 
     Args:
         path: Path to video file
-        batch_size: Number of frames to buffer internally (default: 8)
 
     Returns:
         FrameExtractor configured for iteration
 
     Example:
-        with viteo.open("video.mp4", batch_size=16) as frames:
+        with viteo.open("video.mp4") as frames:
             for frame in frames:
                 process_frame(frame)
     """
-    return FrameExtractor(path, batch_size=batch_size)
+    return FrameExtractor(path)

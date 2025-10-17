@@ -82,7 +82,7 @@ def test_constructor_with_path(sample_video):
     if not path.exists():
         pytest.skip(f"Test video not found: {path}")
 
-    extractor = viteo.FrameExtractor(str(path))
+    extractor = viteo.open(path)
 
     # Check that properties are set correctly
     assert extractor.width > 0
@@ -162,7 +162,7 @@ def test_reset(sample_video):
     if not path.exists():
         pytest.skip(f"Test video not found: {path}")
 
-    extractor = viteo.FrameExtractor(str(path))
+    extractor = viteo.open(path)
 
     # Get first frame
     first_frame = next(extractor)
@@ -220,7 +220,7 @@ def test_reset_out_of_bounds(sample_video):
     if not path.exists():
         pytest.skip(f"Test video not found: {path}")
 
-    extractor = viteo.FrameExtractor(str(path))
+    extractor = viteo.open(path)
 
     # Reset to a frame index way beyond the end of the video
     extractor.reset(1000000)
@@ -306,46 +306,19 @@ if __name__ == "__main__":
     import os
     import sys
 
-    # Path to test videos
-    test_data = Path(__file__).parent / "test-data"
-
-    # Use videos provided on command line or all test videos
     if len(sys.argv) > 1:
         videos = [Path(p) for p in sys.argv[1:]]
     else:
-        videos = [
-            test_data / "video_4k.mp4",
-            test_data / "video_1080p.mp4",
-            test_data / "video_720p.mp4",
-            test_data / "video_480p.mp4",
-        ]
+        samples_dir = Path(__file__).parent / "samples"
+        videos = list(samples_dir.rglob("1080p_*.mp4", case_sensitive=False))
 
     # Run benchmark for each video
     for video_path in videos:
-        if not video_path.exists():
-            print(f"File not found: {video_path}")
+        if not video_path.is_file():
+            print(f"x Not found: {video_path}")
             continue
 
-        print(f"{'-'*20} {video_path.name} {'-'*20}")
-
-        try:
-            extractor = viteo.FrameExtractor(str(video_path))
-
-            # Print video properties
-            print(f"Video:")
-            print(f"* Resolution: {extractor.width}x{extractor.height}")
-            print(f"* FPS: {extractor.fps:.2f}")
-            print(f"* Total frames: {extractor.total_frames}")
-
-            # Extract frames and measure performance
-            fps, ms_per_frame = measure_performance(video_path)
-            print(f"Benchmark:")
-            print(f"* 256 frames extracted in {(256 * ms_per_frame / 1000):.3f}s")
-            print(f"* {fps:.1f} fps / {ms_per_frame:.3f}ms per frame")
-
-        except Exception as e:
-            print(f"\nxxx Error testing {video_path}: {e}\n")
-            import traceback
-            traceback.print_exc()
-
-        print('\n')
+        extractor = viteo.open(video_path)
+        num_frames = min(256, extractor.total_frames)
+        fps, ms_per_frame = measure_performance(video_path, num_frames)
+        print(f"* {video_path.name}: {fps:.2f} fps - {ms_per_frame:.2f}ms")

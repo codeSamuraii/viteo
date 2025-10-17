@@ -28,20 +28,18 @@ public:
     int64_t cachedTotalFrames = 0;
     int64_t currentFrame = 0;
 
-    // Internal batch buffer for performance
-    size_t batch_size;
-    std::vector<uint8_t> batch_buffer;
-    size_t batch_count = 0;
-    size_t batch_index = 0;
+    std::vector<uint8_t> frame_buffer;
+    std::vector<uint8_t> prefetch_buffer;
+    bool has_prefetched_frame = false;
 
     bool isOpen = false;
     bool debugLogging = false;
 
-    Impl(size_t batch_size_param) : batch_size(batch_size_param) {
+    Impl() {
         if (std::getenv("VITEO_DEBUG")) {
             debugLogging = true;
         }
-        DEBUG_LOG("Setting batch size to " << batch_size);
+        DEBUG_LOG("Initialized frame extractor");
     }
 
     ~Impl() {
@@ -126,13 +124,15 @@ public:
 
             cacheMetadata(videoTrack, asset);
 
-            // Allocate batch buffer
             size_t frame_size = cachedWidth * cachedHeight * 4;
-            batch_buffer.resize(batch_size * frame_size);
-            DEBUG_LOG("Allocated batch buffer for " << batch_size << " frames");
+            frame_buffer.resize(frame_size);
+            prefetch_buffer.resize(frame_size);
+            DEBUG_LOG("Allocated frame buffers (" << (frame_size * 2 / 1024 / 1024) << " MB)");
 
             isOpen = true;
-            return setupReader(0);
+            if (!setupReader(0)) return false;
+
+            return prefetchFrame();
         }
     }
 
@@ -208,8 +208,6 @@ public:
             }
 
             currentFrame = startFrame;
-            batch_count = 0;
-            batch_index = 0;
             DEBUG_LOG("Reader initialized successfully");
             return true;
         }
@@ -233,85 +231,64 @@ public:
         }
     }
 
-    /// Processes single sample buffer and adds to batch
-    bool processSampleBuffer(CMSampleBufferRef sampleBuffer, size_t frame_size) {
-        CVImageBufferRef imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer);
-        if (!imageBuffer) return false;
-
-        CVPixelBufferLockBaseAddress(imageBuffer, kCVPixelBufferLock_ReadOnly);
-
-        uint8_t* dst = batch_buffer.data() + (batch_count * frame_size);
-        copyFrameData(imageBuffer, dst);
-
-        CVPixelBufferUnlockBaseAddress(imageBuffer, kCVPixelBufferLock_ReadOnly);
-        batch_count++;
-        currentFrame++;
-
-        return true;
-    }
-
-    /// Load next batch of frames into internal buffer
-    void loadBatch() {
-        if (!reader || !output || !isOpen) {
-            batch_count = 0;
-            return;
+    bool prefetchFrame() {
+        if (!isOpen || !reader || !output) {
+            return false;
         }
-
-        size_t frame_size = cachedWidth * cachedHeight * 4;
-        batch_count = 0;
 
         @autoreleasepool {
-            while (batch_count < batch_size) {
-                if (reader.status != AVAssetReaderStatusReading) {
-                    DEBUG_LOG("Reader stopped, loaded " << batch_count << " frames");
-                    break;
-                }
+            if (reader.status != AVAssetReaderStatusReading) {
+                return false;
+            }
 
-                CMSampleBufferRef sampleBuffer = [output copyNextSampleBuffer];
-                if (!sampleBuffer) {
-                    DEBUG_LOG("No more sample buffers, loaded " << batch_count << " frames");
-                    break;
-                }
+            CMSampleBufferRef sampleBuffer = [output copyNextSampleBuffer];
+            if (!sampleBuffer) {
+                return false;
+            }
 
-                processSampleBuffer(sampleBuffer, frame_size);
+            CVImageBufferRef imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer);
+            if (!imageBuffer) {
                 CFRelease(sampleBuffer);
+                return false;
             }
-        }
 
-        batch_index = 0;
-        if (batch_count > 0) {
-            DEBUG_LOG("Loaded batch of " << batch_count << " frames");
+            CVPixelBufferLockBaseAddress(imageBuffer, kCVPixelBufferLock_ReadOnly);
+            copyFrameData(imageBuffer, prefetch_buffer.data());
+            CVPixelBufferUnlockBaseAddress(imageBuffer, kCVPixelBufferLock_ReadOnly);
+
+            CFRelease(sampleBuffer);
+            has_prefetched_frame = true;
+
+            return true;
         }
     }
 
-    /// Returns pointer to next frame from batch
     uint8_t* nextFrame() {
-        if (!isOpen) return nullptr;
-
-        if (batch_index >= batch_count) {
-            loadBatch();
-            if (batch_count == 0) {
-                DEBUG_LOG("No more frames available");
-                return nullptr;
-            }
+        if (!isOpen || !has_prefetched_frame) {
+            DEBUG_LOG("Not ready to extract frames");
+            return nullptr;
         }
 
-        size_t frame_size = cachedWidth * cachedHeight * 4;
-        uint8_t* frame_ptr = batch_buffer.data() + (batch_index * frame_size);
-        batch_index++;
-        return frame_ptr;
+        std::swap(frame_buffer, prefetch_buffer);
+        currentFrame++;
+
+        prefetchFrame();
+
+        return frame_buffer.data();
     }
 
-    /// Resets reader to specified frame index
     void reset(int64_t frameIndex) {
         if (!isOpen) return;
         DEBUG_LOG("Resetting to frame " << frameIndex);
-        setupReader(frameIndex);
+        has_prefetched_frame = false;
+        if (setupReader(frameIndex)) {
+            prefetchFrame();
+        }
     }
 };
 
 // Public interface implementation
-FrameExtractor::FrameExtractor(size_t batch_size_param) : impl(new Impl(batch_size_param)) {}
+FrameExtractor::FrameExtractor() : impl(new Impl()) {}
 FrameExtractor::~FrameExtractor() { delete impl; }
 
 bool FrameExtractor::open(const std::string& path) {

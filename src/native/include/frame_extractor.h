@@ -10,7 +10,7 @@ namespace viteo {
 /// High-performance video frame extractor for Apple Silicon
 class FrameExtractor {
 public:
-    FrameExtractor(size_t batch_size = 8);
+    FrameExtractor();
     ~FrameExtractor();
 
     /// Open video file for extraction

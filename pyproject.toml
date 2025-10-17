@@ -4,7 +4,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "viteo"
-version = "0.1.1"
+dynamic = ["version"]
 description = "Hardware-accelerated video frame extraction for Apple Silicon"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -58,6 +58,11 @@ Issues = "https://github.com/codeSamuraii/viteo/issues"
 [tool.scikit-build]
 cmake.build-type = "Release"
 wheel.packages = ["src/viteo"]
+
+[tool.scikit-build.metadata.version]
+provider = "scikit_build_core.metadata.regex"
+input = "src/viteo/__init__.py"
+regex = '''^__version__ = ["'](?P<value>[^"']*)["']'''
 
 [tool.scikit-build.cmake.define]
 CMAKE_OSX_ARCHITECTURES = "arm64"

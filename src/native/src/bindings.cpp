@@ -30,7 +30,7 @@ NB_MODULE(_viteo, m) {
     m.doc() = "Hardware-accelerated video frame extraction for Apple Silicon";
 
     nb::class_<FrameExtractor>(m, "FrameExtractor")
-        .def(nb::init<size_t>(), nb::arg("batch_size") = 8, "Create new frame extractor")
+        .def(nb::init<>(), "Create new frame extractor")
         .def("open", &FrameExtractor::open, nb::arg("path"),
             "Open video file for extraction")
         .def("next_frame",
