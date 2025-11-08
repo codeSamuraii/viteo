@@ -16,6 +16,7 @@ Example usage:
         process_frame(frame)
 """
 import pathlib
+import mlx.core as mx
 from _viteo import FrameExtractor as _FrameExtractor
 from typing import Optional
 

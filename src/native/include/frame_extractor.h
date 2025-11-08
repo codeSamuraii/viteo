@@ -4,6 +4,7 @@
 #include <string>
 #include <cstdint>
 #include <vector>
+#include <mlx/mlx.h>
 
 namespace viteo {
 
@@ -16,7 +17,7 @@ public:
     /// Open video file for extraction
     bool open(const std::string& path);
 
-    /// Get next frame as BGRA data (returns nullptr when done)
+    /// Get next frame as MLX array (returns empty array when done)
     uint8_t* next_frame();
 
     /// Reset to beginning or specific frame index

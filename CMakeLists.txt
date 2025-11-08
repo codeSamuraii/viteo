@@ -21,6 +21,30 @@ endif()
 list(APPEND CMAKE_PREFIX_PATH "${NB_DIR}")
 find_package(nanobind CONFIG REQUIRED)
 
+# Find MLX
+execute_process(
+  COMMAND "${Python_EXECUTABLE}" -c "import mlx; print(mlx.__path__[0])"
+  OUTPUT_STRIP_TRAILING_WHITESPACE OUTPUT_VARIABLE MLX_PYTHON_DIR
+  RESULT_VARIABLE MLX_RESULT)
+
+if(MLX_RESULT)
+  message(FATAL_ERROR "MLX not found. Install with: pip install mlx")
+endif()
+
+# MLX include and library paths
+set(MLX_INCLUDE_DIR "${MLX_PYTHON_DIR}/include")
+set(MLX_LIB_DIR "${MLX_PYTHON_DIR}/lib")
+
+# Find MLX library
+find_library(MLX_LIBRARY
+  NAMES mlx
+  PATHS "${MLX_LIB_DIR}"
+  NO_DEFAULT_PATH
+  REQUIRED)
+
+message(STATUS "MLX include dir: ${MLX_INCLUDE_DIR}")
+message(STATUS "MLX library: ${MLX_LIBRARY}")
+
 # Apple frameworks
 find_library(AVFOUNDATION_FRAMEWORK AVFoundation REQUIRED)
 find_library(COREVIDEO_FRAMEWORK CoreVideo REQUIRED)
@@ -42,9 +66,13 @@ nanobind_add_module(
   ${SOURCES}
 )
 
-target_include_directories(_viteo PRIVATE src/native/include)
+target_include_directories(_viteo PRIVATE
+  src/native/include
+  ${MLX_INCLUDE_DIR}
+)
 
 target_link_libraries(_viteo PRIVATE
+  ${MLX_LIBRARY}
   ${AVFOUNDATION_FRAMEWORK}
   ${COREVIDEO_FRAMEWORK}
   ${COREMEDIA_FRAMEWORK}
@@ -52,6 +80,15 @@ target_link_libraries(_viteo PRIVATE
   ${COREGRAPHICS_FRAMEWORK}
   ${FOUNDATION_FRAMEWORK}
   ${COREIMAGE_FRAMEWORK}
+)
+
+# Set rpath to find MLX library at runtime
+# Use @loader_path to find MLX relative to the module location
+set_target_properties(_viteo PROPERTIES
+  BUILD_RPATH "${MLX_LIB_DIR}"
+  INSTALL_RPATH "@loader_path/mlx/lib"
+  BUILD_WITH_INSTALL_RPATH FALSE
+  INSTALL_RPATH_USE_LINK_PATH TRUE
 )
 
 # Enable Objective-C++ for .mm files

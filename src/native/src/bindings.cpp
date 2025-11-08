@@ -7,23 +7,17 @@ namespace nb = nanobind;
 using namespace viteo;
 
 /// Create MLX array from raw BGRA buffer
-nb::object create_mlx_array(uint8_t* data, int height, int width) {
-    if (!data) return nb::none();
+mlx::core::array create_mlx_array(uint8_t* data, int height, int width) {
+    auto arr = mlx::core::array(
+        data,
+        mlx::core::Shape{ (int32_t)height, (int32_t)width, int32_t(4) },
+        mlx::core::uint8
+    );
 
-    // Import MLX
-    nb::object mlx = nb::module_::import_("mlx.core");
-    nb::object mx_array = mlx.attr("array");
-    nb::object mx_uint8 = mlx.attr("uint8");
+    // Eval the array
+    mlx::core::eval({arr});
 
-    // Create memory view
-    size_t size = height * width * 4;
-    nb::object memview = nb::steal(PyMemoryView_FromMemory(
-        reinterpret_cast<char*>(data), size, PyBUF_READ
-    ));
-
-    // Create MLX array and reshape
-    nb::object arr = mx_array(memview, mx_uint8);
-    return arr.attr("reshape")(nb::make_tuple(height, width, 4));
+    return arr;
 }
 
 NB_MODULE(_viteo, m) {
@@ -34,13 +28,12 @@ NB_MODULE(_viteo, m) {
         .def("open", &FrameExtractor::open, nb::arg("path"),
             "Open video file for extraction")
         .def("next_frame",
-            [](FrameExtractor& self) -> nb::object {
+            [](FrameExtractor& self) -> mlx::core::array {
                 uint8_t* frame_data;
                 {
                     nb::gil_scoped_release release;
                     frame_data = self.next_frame();
                 }
-                if (!frame_data) return nb::none();
                 return create_mlx_array(frame_data, self.height(), self.width());
             },
             "Get next frame as MLX array (None when done)")
@@ -52,7 +45,7 @@ NB_MODULE(_viteo, m) {
         .def_prop_ro("total_frames", &FrameExtractor::total_frames, "Total frames")
         .def("__iter__", [](nb::object self) { return self; })
         .def("__next__",
-            [](FrameExtractor& self) -> nb::object {
+            [](FrameExtractor& self) -> mlx::core::array {
                 uint8_t* frame_data;
                 {
                     nb::gil_scoped_release release;

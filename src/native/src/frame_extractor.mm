@@ -132,6 +132,7 @@ public:
             isOpen = true;
             if (!setupReader(0)) return false;
 
+            DEBUG_LOG("Video opened successfully");
             return prefetchFrame();
         }
     }
@@ -233,22 +234,26 @@ public:
 
     bool prefetchFrame() {
         if (!isOpen || !reader || !output) {
+            DEBUG_LOG("Cannot prefetch frame, extractor not open");
             return false;
         }
 
         @autoreleasepool {
             if (reader.status != AVAssetReaderStatusReading) {
+                DEBUG_LOG("Reader not in reading state");
                 return false;
             }
 
             CMSampleBufferRef sampleBuffer = [output copyNextSampleBuffer];
             if (!sampleBuffer) {
+                DEBUG_LOG("No more samples available");
                 return false;
             }
 
             CVImageBufferRef imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer);
             if (!imageBuffer) {
                 CFRelease(sampleBuffer);
+                DEBUG_LOG("Failed to get image buffer from sample");
                 return false;
             }
 
@@ -258,6 +263,7 @@ public:
 
             CFRelease(sampleBuffer);
             has_prefetched_frame = true;
+            DEBUG_LOG("Prefetched frame " << currentFrame);
 
             return true;
         }
@@ -269,11 +275,13 @@ public:
             return nullptr;
         }
 
+        DEBUG_LOG("Swapping frame buffers for frame " << currentFrame);
         std::swap(frame_buffer, prefetch_buffer);
         currentFrame++;
 
         prefetchFrame();
 
+        DEBUG_LOG("Returning frame buffer " << (currentFrame - 1));
         return frame_buffer.data();
     }
 
