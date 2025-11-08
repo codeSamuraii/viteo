@@ -1,5 +1,5 @@
 [build-system]
-requires = ["scikit-build-core", "nanobind", "setuptools"]
+requires = ["scikit-build-core", "nanobind", "setuptools", "mlx"]
 build-backend = "scikit_build_core.build"
 
 [project]
