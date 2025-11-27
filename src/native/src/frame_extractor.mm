@@ -269,10 +269,10 @@ public:
         }
     }
 
-    uint8_t* nextFrame() {
+    mlx::core::array nextFrame() {
         if (!isOpen || !has_prefetched_frame) {
             DEBUG_LOG("Not ready to extract frames");
-            return nullptr;
+            return mlx::core::array({}, mlx::core::uint8);
         }
 
         DEBUG_LOG("Swapping frame buffers for frame " << currentFrame);
@@ -282,7 +282,13 @@ public:
         prefetchFrame();
 
         DEBUG_LOG("Returning frame buffer " << (currentFrame - 1));
-        return frame_buffer.data();
+        auto arr = mlx::core::array(
+            frame_buffer.data(),
+            {cachedHeight, cachedWidth, 4},
+            mlx::core::uint8
+        );
+        mlx::core::eval({arr});
+        return arr;
     }
 
     void reset(int64_t frameIndex) {
@@ -303,7 +309,7 @@ bool FrameExtractor::open(const std::string& path) {
     return impl->open(path);
 }
 
-uint8_t* FrameExtractor::next_frame() {
+mlx::core::array FrameExtractor::next_frame() {
     return impl->nextFrame();
 }
 

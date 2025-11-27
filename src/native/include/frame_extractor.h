@@ -18,7 +18,7 @@ public:
     bool open(const std::string& path);
 
     /// Get next frame as MLX array (returns empty array when done)
-    uint8_t* next_frame();
+    mlx::core::array next_frame();
 
     /// Reset to beginning or specific frame index
     void reset(int64_t frame_index = 0);

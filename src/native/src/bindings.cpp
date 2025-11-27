@@ -1,23 +1,38 @@
 #include <nanobind/nanobind.h>
 #include <nanobind/stl/string.h>
+#include <nanobind/ndarray.h>
+
+#include "mlx/array.h"
 #include "frame_extractor.h"
-#include <Python.h>
 
 namespace nb = nanobind;
+
 using namespace viteo;
 
-/// Create MLX array from raw BGRA buffer
-mlx::core::array create_mlx_array(uint8_t* data, int height, int width) {
-    auto arr = mlx::core::array(
-        data,
-        mlx::core::Shape{ (int32_t)height, (int32_t)width, int32_t(4) },
-        mlx::core::uint8
-    );
+// Helper to convert mlx::core::array to Python mlx.core.array
+nb::object to_python_array(const mlx::core::array& arr) {
+    if (arr.size() == 0) return nb::none();
 
-    // Eval the array
+    // Evaluate to ensure data is ready
     mlx::core::eval({arr});
 
-    return arr;
+    // Get raw pointer and shape info
+    auto shape = arr.shape();
+    int64_t h = shape[0];
+    int64_t w = shape[1];
+    int64_t c = shape[2];
+
+    // Create numpy array view of the data
+    const uint8_t* data = arr.data<uint8_t>();
+    size_t np_shape[3] = {(size_t)h, (size_t)w, (size_t)c};
+
+    auto np_arr = nb::ndarray<nb::numpy, const uint8_t>(
+        (void*)data, 3, np_shape
+    );
+
+    // Convert to MLX array via Python
+    nb::module_ mx = nb::module_::import_("mlx.core");
+    return mx.attr("array")(np_arr);
 }
 
 NB_MODULE(_viteo, m) {
@@ -28,13 +43,13 @@ NB_MODULE(_viteo, m) {
         .def("open", &FrameExtractor::open, nb::arg("path"),
             "Open video file for extraction")
         .def("next_frame",
-            [](FrameExtractor& self) -> mlx::core::array {
-                uint8_t* frame_data;
+            [](FrameExtractor& self) -> nb::object {
+                mlx::core::array frame({}, mlx::core::uint8);
                 {
                     nb::gil_scoped_release release;
-                    frame_data = self.next_frame();
+                    frame = self.next_frame();
                 }
-                return create_mlx_array(frame_data, self.height(), self.width());
+                return to_python_array(frame);
             },
             "Get next frame as MLX array (None when done)")
         .def("reset", &FrameExtractor::reset, nb::arg("frame_index") = 0,
@@ -45,14 +60,14 @@ NB_MODULE(_viteo, m) {
         .def_prop_ro("total_frames", &FrameExtractor::total_frames, "Total frames")
         .def("__iter__", [](nb::object self) { return self; })
         .def("__next__",
-            [](FrameExtractor& self) -> mlx::core::array {
-                uint8_t* frame_data;
+            [](FrameExtractor& self) -> nb::object {
+                mlx::core::array frame({}, mlx::core::uint8);
                 {
                     nb::gil_scoped_release release;
-                    frame_data = self.next_frame();
+                    frame = self.next_frame();
                 }
-                if (!frame_data) throw nb::stop_iteration();
-                return create_mlx_array(frame_data, self.height(), self.width());
+                if (frame.size() == 0) throw nb::stop_iteration();
+                return to_python_array(frame);
             })
         .def("__repr__",
             [](const FrameExtractor& self) {
