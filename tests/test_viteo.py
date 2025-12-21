@@ -7,7 +7,6 @@ import os
 import time
 import pytest
 import tempfile
-import mlx.core as mx
 from pathlib import Path
 
 import viteo
@@ -114,9 +113,9 @@ def test_iterator(sample_video):
         # Get first 10 frames
         count = 0
         for frame in frames:
-            assert isinstance(frame, mx.array)
-            assert frame.shape == (frames.height, frames.width, 4)
-            assert frame.dtype == mx.uint8
+            mv = memoryview(frame)
+            assert mv.shape == (frames.height, frames.width, 4)
+            assert mv.format == 'B'
             count += 1
             if count >= 10:
                 break
@@ -147,7 +146,7 @@ def test_last_frame_is_none(sample_video):
     with viteo.open(path) as video:
         while True:
             frame = video.next_frame()
-            if not isinstance(frame, mx.array):
+            if frame is None:
                 break
 
             i += 1
@@ -165,7 +164,7 @@ def test_reset(sample_video):
     extractor = viteo.open(path)
 
     # Get first frame
-    first_frame = next(extractor)
+    first_frame = memoryview(next(extractor))
 
     # Get 10 more frames
     for _ in range(10):
@@ -173,10 +172,10 @@ def test_reset(sample_video):
 
     # Reset and get first frame again
     extractor.reset()
-    new_first_frame = next(extractor)
+    new_first_frame = memoryview(next(extractor))
 
     # Compare pixel sums as a simple way to check if frames are similar
-    assert mx.sum(first_frame).item() == mx.sum(new_first_frame).item()
+    assert sum(first_frame.cast('B')) == sum(new_first_frame.cast('B'))
 
 
 def test_properties(video_files):
@@ -248,17 +247,7 @@ def measure_performance(video_path, num_frames=200):
     Returns:
         tuple: (frames_per_second, ms_per_frame)
     """
-    extractor = viteo.FrameExtractor(str(video_path))
-
-    # Warmup - extract a few frames to initialize everything
-    for i in range(10):
-        try:
-            next(iter(extractor))
-        except StopIteration:
-            return (0, 0)  # Video too short for test
-
-    # Reset to beginning
-    extractor.reset(0)
+    extractor = viteo.FrameExtractor(video_path)
 
     # Time the extraction of frames
     start_time = time.time()

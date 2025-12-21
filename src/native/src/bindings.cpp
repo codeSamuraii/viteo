@@ -1,24 +1,31 @@
 #include <nanobind/nanobind.h>
+#include <nanobind/ndarray.h>
 #include <nanobind/stl/string.h>
 #include "frame_extractor.h"
-#include <Python.h>
+#include <memory>
+#include <vector>
 
 namespace nb = nanobind;
 using namespace viteo;
 
-/// Create MLX array from raw BGRA buffer
-mlx::core::array create_mlx_array(uint8_t* data, int height, int width) {
-    auto arr = mlx::core::array(
-        data,
-        mlx::core::Shape{ (int32_t)height, (int32_t)width, int32_t(4) },
-        mlx::core::uint8
-    );
+namespace {
 
-    // Eval the array
-    mlx::core::eval({arr});
-
-    return arr;
+nb::ndarray<nb::ro, nb::c_contig, uint8_t> make_frame_array(
+    const std::shared_ptr<std::vector<uint8_t>>& buffer,
+    int height,
+    int width) {
+    // Keep buffer alive as long as Python holds the view
+    auto* holder = new std::shared_ptr<std::vector<uint8_t>>(buffer);
+    nb::capsule owner(holder, [](void* p) noexcept {
+        delete static_cast<std::shared_ptr<std::vector<uint8_t>>*>(p);
+    });
+    return nb::ndarray<nb::ro, nb::c_contig, uint8_t>(
+        (*holder)->data(),
+        {static_cast<size_t>(height), static_cast<size_t>(width), static_cast<size_t>(4)},
+        owner);
 }
+
+} // namespace
 
 NB_MODULE(_viteo, m) {
     m.doc() = "Hardware-accelerated video frame extraction for Apple Silicon";
@@ -28,15 +35,16 @@ NB_MODULE(_viteo, m) {
         .def("open", &FrameExtractor::open, nb::arg("path"),
             "Open video file for extraction")
         .def("next_frame",
-            [](FrameExtractor& self) -> mlx::core::array {
-                uint8_t* frame_data;
+            [](FrameExtractor& self) -> nb::object {
+                std::shared_ptr<std::vector<uint8_t>> frame_buffer;
                 {
                     nb::gil_scoped_release release;
-                    frame_data = self.next_frame();
+                    frame_buffer = self.next_frame();
                 }
-                return create_mlx_array(frame_data, self.height(), self.width());
+                if (!frame_buffer) return nb::none();
+                return nb::cast(make_frame_array(frame_buffer, self.height(), self.width()));
             },
-            "Get next frame as MLX array (None when done)")
+            "Get next frame as a read-only ndarray (None when done)")
         .def("reset", &FrameExtractor::reset, nb::arg("frame_index") = 0,
             "Reset to beginning or specific frame")
         .def_prop_ro("width", &FrameExtractor::width, "Video width")
@@ -45,14 +53,14 @@ NB_MODULE(_viteo, m) {
         .def_prop_ro("total_frames", &FrameExtractor::total_frames, "Total frames")
         .def("__iter__", [](nb::object self) { return self; })
         .def("__next__",
-            [](FrameExtractor& self) -> mlx::core::array {
-                uint8_t* frame_data;
+            [](FrameExtractor& self) -> nb::ndarray<nb::ro, nb::c_contig, uint8_t> {
+                std::shared_ptr<std::vector<uint8_t>> frame_buffer;
                 {
                     nb::gil_scoped_release release;
-                    frame_data = self.next_frame();
+                    frame_buffer = self.next_frame();
                 }
-                if (!frame_data) throw nb::stop_iteration();
-                return create_mlx_array(frame_data, self.height(), self.width());
+                if (!frame_buffer) throw nb::stop_iteration();
+                return make_frame_array(frame_buffer, self.height(), self.width());
             })
         .def("__repr__",
             [](const FrameExtractor& self) {

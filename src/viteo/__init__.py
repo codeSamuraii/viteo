@@ -1,5 +1,5 @@
 """
-Hardware-accelerated video frame extraction for Apple Silicon with MLX.
+Hardware-accelerated video frame extraction for Apple Silicon.
 
 Example usage:
     import viteo
@@ -16,9 +16,8 @@ Example usage:
         process_frame(frame)
 """
 import pathlib
-import mlx.core as mx
-from _viteo import FrameExtractor as _FrameExtractor
 from typing import Optional
+from _viteo import FrameExtractor as _FrameExtractor
 
 __version__ = "0.1.2"
 __all__ = ["FrameExtractor", "open"]

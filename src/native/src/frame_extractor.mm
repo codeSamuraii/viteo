@@ -22,15 +22,13 @@ public:
     AVAssetReaderTrackOutput* output = nil;
     AVAssetTrack* videoTrack = nil;
 
-    int cachedWidth = 0;
-    int cachedHeight = 0;
-    double cachedFPS = 0.0;
-    int64_t cachedTotalFrames = 0;
+    int videoWidth = 0;
+    int videoHeight = 0;
+    double videoFPS = 0.0;
+    int64_t numTotalFrames = 0;
     int64_t currentFrame = 0;
 
-    std::vector<uint8_t> frame_buffer;
-    std::vector<uint8_t> prefetch_buffer;
-    bool has_prefetched_frame = false;
+    std::shared_ptr<std::vector<uint8_t>> frame_buffer;
 
     bool isOpen = false;
     bool debugLogging = false;
@@ -97,18 +95,18 @@ public:
     /// Caches video metadata from track
     void cacheMetadata(AVAssetTrack* track, AVAsset* videoAsset) {
         CGSize size = [track naturalSize];
-        cachedWidth = static_cast<int>(size.width);
-        cachedHeight = static_cast<int>(size.height);
-        cachedFPS = [track nominalFrameRate];
+        videoWidth = static_cast<int>(size.width);
+        videoHeight = static_cast<int>(size.height);
+        videoFPS = [track nominalFrameRate];
 
         CMTime duration = [videoAsset duration];
-        cachedTotalFrames = static_cast<int64_t>(
-            CMTimeGetSeconds(duration) * cachedFPS
+        numTotalFrames = static_cast<int64_t>(
+            CMTimeGetSeconds(duration) * videoFPS
         );
 
-        DEBUG_LOG("Video metadata: " << cachedWidth << "x" << cachedHeight
-                  << " @ " << cachedFPS << " fps, "
-                  << cachedTotalFrames << " total frames");
+        DEBUG_LOG("Video metadata: " << videoWidth << "x" << videoHeight
+                  << " @ " << videoFPS << " fps, "
+                  << numTotalFrames << " total frames");
     }
 
     /// Opens video file and initializes extraction
@@ -124,16 +122,15 @@ public:
 
             cacheMetadata(videoTrack, asset);
 
-            size_t frame_size = cachedWidth * cachedHeight * 4;
-            frame_buffer.resize(frame_size);
-            prefetch_buffer.resize(frame_size);
-            DEBUG_LOG("Allocated frame buffers (" << (frame_size * 2 / 1024 / 1024) << " MB)");
+            size_t frameSize = videoWidth * videoHeight * 4;
+            frame_buffer = std::make_shared<std::vector<uint8_t>>(frameSize);
+            DEBUG_LOG("Allocated frame buffer (" << (frameSize / 1024 / 1024) << " MB)");
 
             isOpen = true;
             if (!setupReader(0)) return false;
 
             DEBUG_LOG("Video opened successfully");
-            return prefetchFrame();
+            return true;
         }
     }
 
@@ -165,7 +162,7 @@ public:
     /// Applies time range for seeking to specific frame
     void applyTimeRange(AVAssetReader* videoReader, int64_t startFrame) {
         if (startFrame > 0) {
-            CMTime startTime = CMTimeMake(startFrame, cachedFPS);
+            CMTime startTime = CMTimeMake(startFrame, videoFPS);
             CMTime duration = CMTimeSubtract([asset duration], startTime);
             videoReader.timeRange = CMTimeRangeMake(startTime, duration);
             DEBUG_LOG("Seeking to frame " << startFrame);
@@ -218,80 +215,67 @@ public:
     void copyFrameData(CVImageBufferRef imageBuffer, uint8_t* dst) {
         uint8_t* src = (uint8_t*)CVPixelBufferGetBaseAddress(imageBuffer);
         size_t bytesPerRow = CVPixelBufferGetBytesPerRow(imageBuffer);
-        size_t data_width = cachedWidth * 4;
-        size_t data_size = cachedHeight * data_width;
+        size_t dataWidth = videoWidth * 4;
+        size_t dataSize = videoHeight * dataWidth;
 
-        if (bytesPerRow == data_width) {
-            memcpy(dst, src, data_size);
+        if (bytesPerRow == dataWidth) {
+            memcpy(dst, src, dataSize);
         } else {
-            for (int y = 0; y < cachedHeight; y++) {
-                memcpy(dst + y * data_width,
+            for (int y = 0; y < videoHeight; y++) {
+                memcpy(dst + y * dataWidth,
                        src + y * bytesPerRow,
-                       data_width);
+                       dataWidth);
             }
         }
     }
 
-    bool prefetchFrame() {
+    std::shared_ptr<std::vector<uint8_t>> nextFrame() {
         if (!isOpen || !reader || !output) {
-            DEBUG_LOG("Cannot prefetch frame, extractor not open");
-            return false;
+            DEBUG_LOG("Not ready to extract frames");
+            return nullptr;
         }
 
         @autoreleasepool {
+            if (frame_buffer.use_count() > 1 || !frame_buffer) {
+                size_t frameSize = static_cast<size_t>(videoWidth) * static_cast<size_t>(videoHeight) * 4;
+                frame_buffer = std::make_shared<std::vector<uint8_t>>(frameSize);
+                DEBUG_LOG("Allocated fresh frame buffer due to active references");
+            }
+
             if (reader.status != AVAssetReaderStatusReading) {
                 DEBUG_LOG("Reader not in reading state");
-                return false;
+                return nullptr;
             }
 
             CMSampleBufferRef sampleBuffer = [output copyNextSampleBuffer];
             if (!sampleBuffer) {
                 DEBUG_LOG("No more samples available");
-                return false;
+                return nullptr;
             }
 
             CVImageBufferRef imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer);
             if (!imageBuffer) {
                 CFRelease(sampleBuffer);
                 DEBUG_LOG("Failed to get image buffer from sample");
-                return false;
+                return nullptr;
             }
 
             CVPixelBufferLockBaseAddress(imageBuffer, kCVPixelBufferLock_ReadOnly);
-            copyFrameData(imageBuffer, prefetch_buffer.data());
+            copyFrameData(imageBuffer, frame_buffer->data());
             CVPixelBufferUnlockBaseAddress(imageBuffer, kCVPixelBufferLock_ReadOnly);
 
             CFRelease(sampleBuffer);
-            has_prefetched_frame = true;
-            DEBUG_LOG("Prefetched frame " << currentFrame);
+            DEBUG_LOG("Returning frame " << currentFrame);
+            currentFrame++;
 
-            return true;
+            return frame_buffer;
         }
-    }
-
-    uint8_t* nextFrame() {
-        if (!isOpen || !has_prefetched_frame) {
-            DEBUG_LOG("Not ready to extract frames");
-            return nullptr;
-        }
-
-        DEBUG_LOG("Swapping frame buffers for frame " << currentFrame);
-        std::swap(frame_buffer, prefetch_buffer);
-        currentFrame++;
-
-        prefetchFrame();
-
-        DEBUG_LOG("Returning frame buffer " << (currentFrame - 1));
-        return frame_buffer.data();
     }
 
     void reset(int64_t frameIndex) {
         if (!isOpen) return;
         DEBUG_LOG("Resetting to frame " << frameIndex);
-        has_prefetched_frame = false;
-        if (setupReader(frameIndex)) {
-            prefetchFrame();
-        }
+        setupReader(frameIndex);
     }
 };
 
@@ -303,7 +287,7 @@ bool FrameExtractor::open(const std::string& path) {
     return impl->open(path);
 }
 
-uint8_t* FrameExtractor::next_frame() {
+std::shared_ptr<std::vector<uint8_t>> FrameExtractor::next_frame() {
     return impl->nextFrame();
 }
 
@@ -311,9 +295,9 @@ void FrameExtractor::reset(int64_t frame_index) {
     impl->reset(frame_index);
 }
 
-int FrameExtractor::width() const { return impl->cachedWidth; }
-int FrameExtractor::height() const { return impl->cachedHeight; }
-double FrameExtractor::fps() const { return impl->cachedFPS; }
-int64_t FrameExtractor::total_frames() const { return impl->cachedTotalFrames; }
+int FrameExtractor::width() const { return impl->videoWidth; }
+int FrameExtractor::height() const { return impl->videoHeight; }
+double FrameExtractor::fps() const { return impl->videoFPS; }
+int64_t FrameExtractor::total_frames() const { return impl->numTotalFrames; }
 
 } // namespace viteo

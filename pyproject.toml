@@ -1,5 +1,5 @@
 [build-system]
-requires = ["scikit-build-core", "nanobind", "setuptools", "mlx"]
+requires = ["scikit-build-core", "nanobind", "setuptools"]
 build-backend = "scikit_build_core.build"
 
 [project]
@@ -36,7 +36,6 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
-    "mlx",
 ]
 
 [project.optional-dependencies]
