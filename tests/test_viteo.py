@@ -247,13 +247,11 @@ def measure_performance(video_path, num_frames=200):
     Returns:
         tuple: (frames_per_second, ms_per_frame)
     """
-    extractor = viteo.FrameExtractor(video_path)
-
     # Time the extraction of frames
     start_time = time.time()
 
     frame_count = 0
-    for frame in extractor:
+    for frame in viteo.open(video_path):
         frame_count += 1
         if frame_count >= num_frames:
             break
@@ -307,7 +305,5 @@ if __name__ == "__main__":
             print(f"x Not found: {video_path}")
             continue
 
-        extractor = viteo.open(video_path)
-        num_frames = min(256, extractor.total_frames)
-        fps, ms_per_frame = measure_performance(video_path, num_frames)
+        fps, ms_per_frame = measure_performance(video_path)
         print(f"* {video_path.name}: {fps:.2f} fps - {ms_per_frame:.2f}ms")

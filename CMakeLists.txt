@@ -29,6 +29,7 @@ find_library(VIDEOTOOLBOX_FRAMEWORK VideoToolbox REQUIRED)
 find_library(COREGRAPHICS_FRAMEWORK CoreGraphics REQUIRED)
 find_library(FOUNDATION_FRAMEWORK Foundation REQUIRED)
 find_library(COREIMAGE_FRAMEWORK CoreImage REQUIRED)
+find_library(ACCELERATE_FRAMEWORK Accelerate REQUIRED)
 
 # Source files
 set(SOURCES
@@ -54,6 +55,7 @@ target_link_libraries(_viteo PRIVATE
   ${COREGRAPHICS_FRAMEWORK}
   ${FOUNDATION_FRAMEWORK}
   ${COREIMAGE_FRAMEWORK}
+  ${ACCELERATE_FRAMEWORK}
 )
 
 # Enable Objective-C++ for .mm files

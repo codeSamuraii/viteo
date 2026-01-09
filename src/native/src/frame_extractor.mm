@@ -1,10 +1,15 @@
 #import <AVFoundation/AVFoundation.h>
-#import <CoreVideo/CoreVideo.h>
-#import <CoreMedia/CoreMedia.h>
 #import <VideoToolbox/VideoToolbox.h>
+#import <CoreVideo/CoreVideo.h>
+#import <Accelerate/Accelerate.h>
 #include "frame_extractor.h"
-#include <cstdlib>
 #include <iostream>
+#include <vector>
+#include <deque>
+#include <mutex>
+#include <thread>
+#include <condition_variable>
+#include <atomic>
 
 #define DEBUG_LOG(msg) do { \
     if (debugLogging) { \
@@ -14,7 +19,7 @@
 
 namespace viteo {
 
-/// Internal implementation with AVFoundation
+/// Internal implementation with AVFoundation and background prefetching
 class FrameExtractor::Impl {
 public:
     AVAsset* asset = nil;
@@ -26,11 +31,19 @@ public:
     int videoHeight = 0;
     double videoFPS = 0.0;
     int64_t numTotalFrames = 0;
-    int64_t currentFrame = 0;
 
-    std::shared_ptr<std::vector<uint8_t>> frame_buffer;
+    // Threading / Prefetch state
+    std::thread decodeThread;
+    std::deque<std::shared_ptr<std::vector<uint8_t>>> frameQueue;
+    std::mutex queueMutex;
+    std::condition_variable producerCV;
+    std::condition_variable consumerCV;
 
-    bool isOpen = false;
+    static constexpr size_t MAX_QUEUE_SIZE = 4;
+    std::atomic<bool> isRunning{false};
+    std::atomic<bool> isFinished{false};
+    std::atomic<bool> hasError{false};
+
     bool debugLogging = false;
 
     Impl() {
@@ -42,11 +55,14 @@ public:
 
     ~Impl() {
         close();
-        // ARC handles cleanup automatically
     }
 
     /// Releases all resources and resets state
     void close() {
+        if (!asset && !reader) return;
+
+        stopDecodeThread();
+
         @autoreleasepool {
             if (reader) {
                 [reader cancelReading];
@@ -55,10 +71,22 @@ public:
             output = nil;
             videoTrack = nil;
             asset = nil;
-            isOpen = false;
-            currentFrame = 0;
         }
         DEBUG_LOG("Closed video resources");
+    }
+
+    /// Stops the background decode thread
+    void stopDecodeThread() {
+        isRunning = false;
+        producerCV.notify_all();
+        consumerCV.notify_all();
+
+        if (decodeThread.joinable()) {
+            decodeThread.join();
+        }
+
+        std::lock_guard<std::mutex> lock(queueMutex);
+        frameQueue.clear();
     }
 
     /// Loads asset from file path
@@ -78,10 +106,7 @@ public:
 
     /// Extracts video track from asset
     AVAssetTrack* extractVideoTrack(AVAsset* videoAsset) {
-        #pragma clang diagnostic push
-        #pragma clang diagnostic ignored "-Wdeprecated-declarations"
         NSArray* tracks = [videoAsset tracksWithMediaType:AVMediaTypeVideo];
-        #pragma clang diagnostic pop
 
         if (tracks.count == 0) {
             DEBUG_LOG("No video tracks found");
@@ -100,13 +125,73 @@ public:
         videoFPS = [track nominalFrameRate];
 
         CMTime duration = [videoAsset duration];
-        numTotalFrames = static_cast<int64_t>(
-            CMTimeGetSeconds(duration) * videoFPS
-        );
+        numTotalFrames = static_cast<int64_t>(CMTimeGetSeconds(duration) * videoFPS);
 
         DEBUG_LOG("Video metadata: " << videoWidth << "x" << videoHeight
                   << " @ " << videoFPS << " fps, "
                   << numTotalFrames << " total frames");
+    }
+
+    /// Creates output settings for hardware-accelerated decoding
+    NSDictionary* createOutputSettings() {
+        return @{
+            (id)kCVPixelBufferPixelFormatTypeKey: @(kCVPixelFormatType_32BGRA),
+            (id)kCVPixelBufferMetalCompatibilityKey: @YES,
+            AVVideoDecompressionPropertiesKey: @{
+                (id)kVTDecompressionPropertyKey_UsingHardwareAcceleratedVideoDecoder: @YES
+            }
+        };
+    }
+
+    /// Configures track output for optimal performance
+    AVAssetReaderTrackOutput* createTrackOutput(AVAssetTrack* track, NSDictionary* settings) {
+        AVAssetReaderTrackOutput* trackOutput = [[AVAssetReaderTrackOutput alloc]
+            initWithTrack:track outputSettings:settings];
+
+        trackOutput.alwaysCopiesSampleData = NO;
+
+        DEBUG_LOG("Created track output with hardware acceleration");
+        return trackOutput;
+    }
+
+    /// Initializes reader for frame extraction
+    bool setupReader() {
+        @autoreleasepool {
+            if (reader) {
+                [reader cancelReading];
+                reader = nil;
+                output = nil;
+            }
+
+            NSError* error = nil;
+            reader = [[AVAssetReader alloc] initWithAsset:asset error:&error];
+            if (error || !reader) {
+                DEBUG_LOG("Failed to create reader");
+                return false;
+            }
+
+            NSDictionary* settings = createOutputSettings();
+            output = createTrackOutput(videoTrack, settings);
+
+            if (![reader canAddOutput:output]) {
+                DEBUG_LOG("Cannot add output to reader");
+                reader = nil;
+                output = nil;
+                return false;
+            }
+
+            [reader addOutput:output];
+
+            if (![reader startReading]) {
+                DEBUG_LOG("Failed to start reading");
+                reader = nil;
+                output = nil;
+                return false;
+            }
+
+            DEBUG_LOG("Reader initialized successfully");
+            return true;
+        }
     }
 
     /// Opens video file and initializes extraction
@@ -122,160 +207,128 @@ public:
 
             cacheMetadata(videoTrack, asset);
 
-            size_t frameSize = videoWidth * videoHeight * 4;
-            frame_buffer = std::make_shared<std::vector<uint8_t>>(frameSize);
-            DEBUG_LOG("Allocated frame buffer (" << (frameSize / 1024 / 1024) << " MB)");
+            if (!setupReader()) return false;
 
-            isOpen = true;
-            if (!setupReader(0)) return false;
+            // Start background decode thread
+            isRunning = true;
+            isFinished = false;
+            hasError = false;
+            decodeThread = std::thread(&Impl::decodeLoop, this);
 
             DEBUG_LOG("Video opened successfully");
             return true;
         }
     }
 
-    /// Creates output settings dictionary for hardware accelerated decoding
-    NSDictionary* createOutputSettings() {
-        return @{
-            (id)kCVPixelBufferPixelFormatTypeKey: @(kCVPixelFormatType_32BGRA),
-            (id)kCVPixelBufferMetalCompatibilityKey: @YES,
-            (id)kCVPixelBufferIOSurfacePropertiesKey: @{},
-            AVVideoDecompressionPropertiesKey: @{
-                (id)kVTDecompressionPropertyKey_UsingHardwareAcceleratedVideoDecoder: @YES,
-                (id)kVTDecompressionPropertyKey_PropagatePerFrameHDRDisplayMetadata: @NO,
-            },
-        };
-    }
+    /// Copies pixel buffer data using vImage for optimal performance
+    std::shared_ptr<std::vector<uint8_t>> copyPixelBuffer(CVImageBufferRef imageBuffer) {
+        CVPixelBufferLockBaseAddress(imageBuffer, kCVPixelBufferLock_ReadOnly);
 
-    /// Configures track output for optimal performance
-    AVAssetReaderTrackOutput* createTrackOutput(AVAssetTrack* track, NSDictionary* settings) {
-        AVAssetReaderTrackOutput* trackOutput = [[AVAssetReaderTrackOutput alloc]
-            initWithTrack:track outputSettings:settings];
-
-        trackOutput.alwaysCopiesSampleData = NO;
-        trackOutput.supportsRandomAccess = YES;
-
-        DEBUG_LOG("Created track output with hardware acceleration");
-        return trackOutput;
-    }
-
-    /// Applies time range for seeking to specific frame
-    void applyTimeRange(AVAssetReader* videoReader, int64_t startFrame) {
-        if (startFrame > 0) {
-            CMTime startTime = CMTimeMake(startFrame, videoFPS);
-            CMTime duration = CMTimeSubtract([asset duration], startTime);
-            videoReader.timeRange = CMTimeRangeMake(startTime, duration);
-            DEBUG_LOG("Seeking to frame " << startFrame);
-        }
-    }
-
-    /// Initializes reader for frame extraction
-    bool setupReader(int64_t startFrame) {
-        @autoreleasepool {
-            if (reader) {
-                [reader cancelReading];
-                reader = nil;
-                output = nil;
-            }
-
-            NSError* error = nil;
-            reader = [[AVAssetReader alloc] initWithAsset:asset error:&error];
-            if (error || !reader) {
-                DEBUG_LOG("Failed to create reader: " << (error ? [[error localizedDescription] UTF8String] : "unknown error"));
-                return false;
-            }
-
-            NSDictionary* outputSettings = createOutputSettings();
-            output = createTrackOutput(videoTrack, outputSettings);
-
-            if (![reader canAddOutput:output]) {
-                DEBUG_LOG("Cannot add output to reader");
-                reader = nil;
-                output = nil;
-                return false;
-            }
-
-            [reader addOutput:output];
-            applyTimeRange(reader, startFrame);
-
-            if (![reader startReading]) {
-                DEBUG_LOG("Failed to start reading");
-                reader = nil;
-                output = nil;
-                return false;
-            }
-
-            currentFrame = startFrame;
-            DEBUG_LOG("Reader initialized successfully");
-            return true;
-        }
-    }
-
-    /// Copies frame from pixel buffer to destination
-    void copyFrameData(CVImageBufferRef imageBuffer, uint8_t* dst) {
-        uint8_t* src = (uint8_t*)CVPixelBufferGetBaseAddress(imageBuffer);
+        void* srcData = CVPixelBufferGetBaseAddress(imageBuffer);
         size_t bytesPerRow = CVPixelBufferGetBytesPerRow(imageBuffer);
-        size_t dataWidth = videoWidth * 4;
-        size_t dataSize = videoHeight * dataWidth;
+        size_t width = CVPixelBufferGetWidth(imageBuffer);
+        size_t height = CVPixelBufferGetHeight(imageBuffer);
 
-        if (bytesPerRow == dataWidth) {
-            memcpy(dst, src, dataSize);
-        } else {
-            for (int y = 0; y < videoHeight; y++) {
-                memcpy(dst + y * dataWidth,
-                       src + y * bytesPerRow,
-                       dataWidth);
-            }
-        }
-    }
+        size_t dataSize = width * height * 4;
+        auto buffer = std::make_shared<std::vector<uint8_t>>(dataSize);
 
-    std::shared_ptr<std::vector<uint8_t>> nextFrame() {
-        if (!isOpen || !reader || !output) {
-            DEBUG_LOG("Not ready to extract frames");
+        vImage_Buffer src = {
+            .data = srcData,
+            .height = static_cast<vImagePixelCount>(height),
+            .width = static_cast<vImagePixelCount>(width),
+            .rowBytes = bytesPerRow
+        };
+
+        vImage_Buffer dest = {
+            .data = buffer->data(),
+            .height = static_cast<vImagePixelCount>(height),
+            .width = static_cast<vImagePixelCount>(width),
+            .rowBytes = width * 4
+        };
+
+        vImage_Error err = vImageCopyBuffer(&src, &dest, 4, kvImageNoFlags);
+
+        CVPixelBufferUnlockBaseAddress(imageBuffer, kCVPixelBufferLock_ReadOnly);
+
+        if (err != kvImageNoError) {
+            DEBUG_LOG("vImage copy failed with error: " << err);
             return nullptr;
         }
 
-        @autoreleasepool {
-            if (frame_buffer.use_count() > 1 || !frame_buffer) {
-                size_t frameSize = static_cast<size_t>(videoWidth) * static_cast<size_t>(videoHeight) * 4;
-                frame_buffer = std::make_shared<std::vector<uint8_t>>(frameSize);
-                DEBUG_LOG("Allocated fresh frame buffer due to active references");
+        return buffer;
+    }
+
+    /// Background decode loop for frame prefetching
+    void decodeLoop() {
+        while (isRunning) {
+            @autoreleasepool {
+                std::unique_lock<std::mutex> lock(queueMutex);
+
+                // Wait if queue is full
+                producerCV.wait(lock, [this] {
+                    return !isRunning || frameQueue.size() < MAX_QUEUE_SIZE;
+                });
+
+                if (!isRunning) break;
+                lock.unlock();
+
+                // Decode frame
+                CMSampleBufferRef sample = [output copyNextSampleBuffer];
+
+                if (!sample) {
+                    std::lock_guard<std::mutex> guard(queueMutex);
+                    isFinished = true;
+                    consumerCV.notify_all();
+                    DEBUG_LOG("End of stream reached");
+                    break;
+                }
+
+                CVImageBufferRef imageBuffer = CMSampleBufferGetImageBuffer(sample);
+                std::shared_ptr<std::vector<uint8_t>> frameData = nullptr;
+
+                if (imageBuffer) {
+                    frameData = copyPixelBuffer(imageBuffer);
+                }
+
+                CFRelease(sample);
+
+                if (frameData) {
+                    std::lock_guard<std::mutex> guard(queueMutex);
+                    frameQueue.push_back(frameData);
+                    consumerCV.notify_one();
+                } else {
+                    hasError = true;
+                    DEBUG_LOG("Failed to process sample buffer");
+                    break;
+                }
             }
-
-            if (reader.status != AVAssetReaderStatusReading) {
-                DEBUG_LOG("Reader not in reading state");
-                return nullptr;
-            }
-
-            CMSampleBufferRef sampleBuffer = [output copyNextSampleBuffer];
-            if (!sampleBuffer) {
-                DEBUG_LOG("No more samples available");
-                return nullptr;
-            }
-
-            CVImageBufferRef imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer);
-            if (!imageBuffer) {
-                CFRelease(sampleBuffer);
-                DEBUG_LOG("Failed to get image buffer from sample");
-                return nullptr;
-            }
-
-            CVPixelBufferLockBaseAddress(imageBuffer, kCVPixelBufferLock_ReadOnly);
-            copyFrameData(imageBuffer, frame_buffer->data());
-            CVPixelBufferUnlockBaseAddress(imageBuffer, kCVPixelBufferLock_ReadOnly);
-
-            CFRelease(sampleBuffer);
-            DEBUG_LOG("Returning frame " << currentFrame);
-            currentFrame++;
-
-            return frame_buffer;
         }
     }
 
+    /// Returns next decoded frame
+    std::shared_ptr<std::vector<uint8_t>> nextFrame() {
+        std::unique_lock<std::mutex> lock(queueMutex);
+
+        consumerCV.wait(lock, [this] {
+            return !frameQueue.empty() || isFinished || !isRunning;
+        });
+
+        if (!frameQueue.empty()) {
+            auto frame = frameQueue.front();
+            frameQueue.pop_front();
+            producerCV.notify_one();
+            return frame;
+        }
+
+        DEBUG_LOG("No more frames available");
+        return nullptr;
+    }
+
+    /// Resets to beginning (restarts decode pipeline)
     void reset(int64_t frameIndex) {
-        if (!isOpen) return;
+        if (!isRunning) return;
         DEBUG_LOG("Resetting to frame " << frameIndex);
-        setupReader(frameIndex);
+        close();
     }
 };
 
