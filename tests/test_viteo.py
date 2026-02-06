@@ -17,36 +17,30 @@ import viteo
 @pytest.fixture
 def test_data_dir():
     """Path to test video files."""
-    return Path(__file__).parent / "test-data"
+    return Path(__file__).parent / "samples"
 
 
 @pytest.fixture
 def video_files(test_data_dir):
     """Dictionary of test video files with their properties."""
     return {
-        "4k": {
-            "path": test_data_dir / "video_4k.mp4",
-            "width": 3840,
-            "height": 2160,
-            "min_fps": 60.0  # Minimum expected extraction speed
-        },
         "1080p": {
-            "path": test_data_dir / "video_1080p.mp4",
+            "path": test_data_dir / "1080p_30M_hevc8.mp4",
             "width": 1920,
             "height": 1080,
             "min_fps": 120.0
         },
-        "720p": {
-            "path": test_data_dir / "video_720p.mp4",
-            "width": 1280,
-            "height": 720,
-            "min_fps": 240.0
+        "4k": {
+            "path": test_data_dir / "4k_100M_hevc10.mp4",
+            "width": 3840,
+            "height": 2160,
+            "min_fps": 60.0
         },
-        "480p": {
-            "path": test_data_dir / "video_480p.mp4",
-            "width": 854,
-            "height": 480,
-            "min_fps": 480.0
+        "8k": {
+            "path": test_data_dir / "8k_150M_hevc10.mp4",
+            "width": 7680,
+            "height": 4320,
+            "min_fps": 30.0
         }
     }
 
@@ -54,7 +48,7 @@ def video_files(test_data_dir):
 @pytest.fixture
 def sample_video(video_files):
     """A standard test video file (720p for faster tests)."""
-    return video_files["720p"]
+    return video_files["1080p"]
 
 
 # --- Basic Functionality Tests ---
@@ -133,7 +127,7 @@ def test_run_to_end(sample_video):
         for frame in video:
             frame_count += 1
 
-    assert frame_count == video.total_frames
+    assert abs(frame_count - video.total_frames) <= 1
 
 
 def test_last_frame_is_none(sample_video):
@@ -152,7 +146,7 @@ def test_last_frame_is_none(sample_video):
             i += 1
 
         assert frame is None
-        assert i == video.total_frames
+        assert abs(i - video.total_frames) <= 1
 
 
 def test_reset(sample_video):

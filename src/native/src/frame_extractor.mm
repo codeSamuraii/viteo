@@ -4,6 +4,7 @@
 #import <VideoToolbox/VideoToolbox.h>
 #include "frame_extractor.h"
 #include <cstdlib>
+#include <cmath>
 #include <iostream>
 
 #define DEBUG_LOG(msg) do { \
@@ -100,7 +101,7 @@ public:
         videoFPS = [track nominalFrameRate];
 
         CMTime duration = [videoAsset duration];
-        numTotalFrames = static_cast<int64_t>(
+        numTotalFrames = std::llround(
             CMTimeGetSeconds(duration) * videoFPS
         );
 
