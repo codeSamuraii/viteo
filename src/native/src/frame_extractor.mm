@@ -100,7 +100,7 @@ public:
         videoHeight = static_cast<int>(size.height);
         videoFPS = [track nominalFrameRate];
 
-        CMTime duration = [videoAsset duration];
+        CMTime duration = track.timeRange.duration;
         numTotalFrames = std::llround(
             CMTimeGetSeconds(duration) * videoFPS
         );
