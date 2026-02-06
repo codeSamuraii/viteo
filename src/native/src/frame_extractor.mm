@@ -139,6 +139,7 @@ public:
     NSDictionary* createOutputSettings() {
         return @{
             (id)kCVPixelBufferPixelFormatTypeKey: @(kCVPixelFormatType_32BGRA),
+            (id)kCVPixelBufferBytesPerRowAlignmentKey: @(1),
             AVVideoDecompressionPropertiesKey: @{
                 (id)kVTDecompressionPropertyKey_UsingHardwareAcceleratedVideoDecoder: @YES,
                 (id)kVTDecompressionPropertyKey_PropagatePerFrameHDRDisplayMetadata: @NO,
