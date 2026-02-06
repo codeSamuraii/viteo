@@ -3,8 +3,6 @@
 
 #include <string>
 #include <cstdint>
-#include <vector>
-#include <memory>
 
 namespace viteo {
 
@@ -17,8 +15,8 @@ public:
     /// Open video file for extraction
     bool open(const std::string& path);
 
-    /// Get next frame buffer (nullptr when done)
-    std::shared_ptr<std::vector<uint8_t>> next_frame();
+    /// Get next frame as raw pointer into internal buffer (nullptr when done)
+    uint8_t* next_frame();
 
     /// Reset to beginning or specific frame index
     void reset(int64_t frame_index = 0);

@@ -29,7 +29,7 @@ public:
     int64_t numTotalFrames = 0;
     int64_t currentFrame = 0;
 
-    std::shared_ptr<std::vector<uint8_t>> frame_buffer;
+    std::vector<uint8_t> frame_buffer;
 
     bool isOpen = false;
     bool debugLogging = false;
@@ -124,7 +124,7 @@ public:
             cacheMetadata(videoTrack, asset);
 
             size_t frameSize = videoWidth * videoHeight * 4;
-            frame_buffer = std::make_shared<std::vector<uint8_t>>(frameSize);
+            frame_buffer.resize(frameSize);
             DEBUG_LOG("Allocated frame buffer (" << (frameSize / 1024 / 1024) << " MB)");
 
             isOpen = true;
@@ -229,16 +229,10 @@ public:
         }
     }
 
-    std::shared_ptr<std::vector<uint8_t>> nextFrame() {
+    uint8_t* nextFrame() {
         if (!isOpen || !reader || !output) {
             DEBUG_LOG("Not ready to extract frames");
             return nullptr;
-        }
-
-        if (frame_buffer.use_count() > 1 || !frame_buffer) {
-            size_t frameSize = static_cast<size_t>(videoWidth) * static_cast<size_t>(videoHeight) * 4;
-            frame_buffer = std::make_shared<std::vector<uint8_t>>(frameSize);
-            DEBUG_LOG("Allocated fresh frame buffer due to active references");
         }
 
         CMSampleBufferRef sampleBuffer = [output copyNextSampleBuffer];
@@ -255,14 +249,14 @@ public:
         }
 
         CVPixelBufferLockBaseAddress(imageBuffer, kCVPixelBufferLock_ReadOnly);
-        copyFrameData(imageBuffer, frame_buffer->data());
+        copyFrameData(imageBuffer, frame_buffer.data());
         CVPixelBufferUnlockBaseAddress(imageBuffer, kCVPixelBufferLock_ReadOnly);
 
         CFRelease(sampleBuffer);
         DEBUG_LOG("Returning frame " << currentFrame);
         currentFrame++;
 
-        return frame_buffer;
+        return frame_buffer.data();
     }
 
     void reset(int64_t frameIndex) {
@@ -280,7 +274,7 @@ bool FrameExtractor::open(const std::string& path) {
     return impl->open(path);
 }
 
-std::shared_ptr<std::vector<uint8_t>> FrameExtractor::next_frame() {
+uint8_t* FrameExtractor::next_frame() {
     return impl->nextFrame();
 }
 
