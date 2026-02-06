@@ -9,10 +9,10 @@ using namespace viteo;
 namespace {
 
 nb::ndarray<nb::c_contig, uint8_t, nb::memview> make_frame_array(
-    uint8_t* data, int height, int width, nb::handle owner) {
+    uint8_t* data, int height, int width, int channels, nb::handle owner) {
     return nb::ndarray<nb::c_contig, uint8_t, nb::memview>(
         data,
-        {static_cast<size_t>(height), static_cast<size_t>(width), static_cast<size_t>(4)},
+        {static_cast<size_t>(height), static_cast<size_t>(width), static_cast<size_t>(channels)},
         owner);
 }
 
@@ -34,13 +34,14 @@ NB_MODULE(_viteo, m) {
                     data = extractor.next_frame();
                 }
                 if (!data) return nb::none();
-                return nb::cast(make_frame_array(data, extractor.height(), extractor.width(), self));
+                return nb::cast(make_frame_array(data, extractor.height(), extractor.width(), extractor.channels(), self));
             },
             "Get next frame as a memoryview (None when done)")
         .def("reset", &FrameExtractor::reset, nb::arg("frame_index") = 0,
             "Reset to beginning or specific frame")
         .def_prop_ro("width", &FrameExtractor::width, "Video width")
         .def_prop_ro("height", &FrameExtractor::height, "Video height")
+        .def_prop_ro("channels", &FrameExtractor::channels, "Channels per pixel")
         .def_prop_ro("fps", &FrameExtractor::fps, "Frames per second")
         .def_prop_ro("total_frames", &FrameExtractor::total_frames, "Total frames")
         .def("__iter__", [](nb::object self) { return self; })
@@ -53,7 +54,7 @@ NB_MODULE(_viteo, m) {
                     data = extractor.next_frame();
                 }
                 if (!data) throw nb::stop_iteration();
-                return make_frame_array(data, extractor.height(), extractor.width(), self);
+                return make_frame_array(data, extractor.height(), extractor.width(), extractor.channels(), self);
             })
         .def("__repr__",
             [](const FrameExtractor& self) {

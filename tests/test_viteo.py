@@ -108,7 +108,7 @@ def test_iterator(sample_video):
         count = 0
         for frame in frames:
             mv = memoryview(frame)
-            assert mv.shape == (frames.height, frames.width, 4)
+            assert mv.shape == (frames.height, frames.width, frames.channels)
             assert mv.format == 'B'
             count += 1
             if count >= 10:

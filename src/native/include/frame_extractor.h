@@ -27,6 +27,9 @@ public:
     /// Video height in pixels
     int height() const;
 
+    /// Number of output channels per pixel (4 for BGRA)
+    int channels() const;
+
     /// Video frames per second
     double fps() const;
 

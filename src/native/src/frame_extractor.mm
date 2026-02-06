@@ -2,6 +2,7 @@
 #import <CoreVideo/CoreVideo.h>
 #import <CoreMedia/CoreMedia.h>
 #import <VideoToolbox/VideoToolbox.h>
+#import <Accelerate/Accelerate.h>
 #include "frame_extractor.h"
 #include <cstdlib>
 #include <cmath>
@@ -25,12 +26,17 @@ public:
 
     int videoWidth = 0;
     int videoHeight = 0;
+    int numChannels = 4;
     double videoFPS = 0.0;
     int64_t numTotalFrames = 0;
     int64_t currentFrame = 0;
 
     std::vector<uint8_t> frame_buffer;
+    std::vector<uint8_t> y_buffer;
+    std::vector<uint8_t> uv_buffer;
 
+    vImage_YpCbCrToARGB conversionInfo;
+    bool conversionReady = false;
     bool isOpen = false;
     bool debugLogging = false;
 
@@ -57,8 +63,12 @@ public:
             videoTrack = nil;
             asset = nil;
             isOpen = false;
+            conversionReady = false;
             currentFrame = 0;
         }
+        frame_buffer.clear(); frame_buffer.shrink_to_fit();
+        y_buffer.clear(); y_buffer.shrink_to_fit();
+        uv_buffer.clear(); uv_buffer.shrink_to_fit();
         DEBUG_LOG("Closed video resources");
     }
 
@@ -110,6 +120,37 @@ public:
                   << numTotalFrames << " total frames");
     }
 
+    /// Initializes vImage YUV-to-ARGB conversion (called once per open)
+    bool initConversionInfo() {
+        vImage_YpCbCrPixelRange pixelRange = {
+            .Yp_bias = 16,
+            .CbCr_bias = 128,
+            .YpRangeMax = 235,
+            .CbCrRangeMax = 240,
+            .YpMax = 235,
+            .YpMin = 16,
+            .CbCrMax = 240,
+            .CbCrMin = 16
+        };
+
+        vImage_Error err = vImageConvert_YpCbCrToARGB_GenerateConversion(
+            kvImage_YpCbCrToARGBMatrix_ITU_R_709_2,
+            &pixelRange,
+            &conversionInfo,
+            kvImage420Yp8_CbCr8,
+            kvImageARGB8888,
+            kvImageNoFlags
+        );
+
+        conversionReady = (err == kvImageNoError);
+        if (!conversionReady) {
+            DEBUG_LOG("Failed to initialize vImage conversion: " << err);
+        } else {
+            DEBUG_LOG("vImage BT.709 conversion initialized");
+        }
+        return conversionReady;
+    }
+
     /// Opens video file and initializes extraction
     bool open(const std::string& path) {
         close();
@@ -123,9 +164,19 @@ public:
 
             cacheMetadata(videoTrack, asset);
 
-            size_t frameSize = videoWidth * videoHeight * 4;
+            // Allocate output buffer (BGRA)
+            size_t frameSize = videoWidth * videoHeight * numChannels;
             frame_buffer.resize(frameSize);
-            DEBUG_LOG("Allocated frame buffer (" << (frameSize / 1024 / 1024) << " MB)");
+
+            // Allocate intermediate NV12 plane buffers
+            y_buffer.resize(videoWidth * videoHeight);
+            uv_buffer.resize(videoWidth * (videoHeight / 2));
+
+            DEBUG_LOG("Allocated buffers: output=" << (frameSize / 1024 / 1024)
+                      << " MB, Y=" << (y_buffer.size() / 1024 / 1024)
+                      << " MB, UV=" << (uv_buffer.size() / 1024 / 1024) << " MB");
+
+            if (!initConversionInfo()) return false;
 
             isOpen = true;
             if (!setupReader(0)) return false;
@@ -135,11 +186,10 @@ public:
         }
     }
 
-    /// Creates output settings dictionary for hardware accelerated decoding
+    /// Creates output settings for native NV12 decode
     NSDictionary* createOutputSettings() {
         return @{
-            (id)kCVPixelBufferPixelFormatTypeKey: @(kCVPixelFormatType_32BGRA),
-            (id)kCVPixelBufferBytesPerRowAlignmentKey: @(1),
+            (id)kCVPixelBufferPixelFormatTypeKey: @(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange),
             AVVideoDecompressionPropertiesKey: @{
                 (id)kVTDecompressionPropertyKey_UsingHardwareAcceleratedVideoDecoder: @YES,
                 (id)kVTDecompressionPropertyKey_PropagatePerFrameHDRDisplayMetadata: @NO,
@@ -211,26 +261,63 @@ public:
         }
     }
 
-    /// Copies frame from pixel buffer to destination
-    void copyFrameData(CVImageBufferRef imageBuffer, uint8_t* dst) {
-        uint8_t* src = (uint8_t*)CVPixelBufferGetBaseAddress(imageBuffer);
-        size_t bytesPerRow = CVPixelBufferGetBytesPerRow(imageBuffer);
-        size_t dataWidth = videoWidth * 4;
-        size_t dataSize = videoHeight * dataWidth;
+    /// Copies a plane from CVPixelBuffer into a contiguous buffer
+    void copyPlane(CVImageBufferRef imageBuffer, int planeIndex,
+                   uint8_t* dst, size_t dstRowBytes, int planeHeight) {
+        uint8_t* src = (uint8_t*)CVPixelBufferGetBaseAddressOfPlane(imageBuffer, planeIndex);
+        size_t srcRowBytes = CVPixelBufferGetBytesPerRowOfPlane(imageBuffer, planeIndex);
 
-        if (bytesPerRow == dataWidth) {
-            memcpy(dst, src, dataSize);
+        if (srcRowBytes == dstRowBytes) {
+            memcpy(dst, src, dstRowBytes * planeHeight);
         } else {
-            for (int y = 0; y < videoHeight; y++) {
-                memcpy(dst + y * dataWidth,
-                       src + y * bytesPerRow,
-                       dataWidth);
+            for (int y = 0; y < planeHeight; y++) {
+                memcpy(dst + y * dstRowBytes, src + y * srcRowBytes, dstRowBytes);
             }
         }
     }
 
+    /// Converts NV12 pixel buffer to BGRA using vImage
+    void convertFrame(CVImageBufferRef imageBuffer, uint8_t* dst) {
+        // Copy Y plane (full resolution)
+        copyPlane(imageBuffer, 0, y_buffer.data(), videoWidth, videoHeight);
+
+        // Copy UV plane (half height, full width for interleaved CbCr)
+        int uvHeight = videoHeight / 2;
+        copyPlane(imageBuffer, 1, uv_buffer.data(), videoWidth, uvHeight);
+
+        // Set up vImage buffers
+        vImage_Buffer srcY = {
+            .data = y_buffer.data(),
+            .height = static_cast<vImagePixelCount>(videoHeight),
+            .width = static_cast<vImagePixelCount>(videoWidth),
+            .rowBytes = static_cast<size_t>(videoWidth)
+        };
+
+        vImage_Buffer srcUV = {
+            .data = uv_buffer.data(),
+            .height = static_cast<vImagePixelCount>(uvHeight),
+            .width = static_cast<vImagePixelCount>(videoWidth / 2),
+            .rowBytes = static_cast<size_t>(videoWidth)
+        };
+
+        vImage_Buffer dstBuf = {
+            .data = dst,
+            .height = static_cast<vImagePixelCount>(videoHeight),
+            .width = static_cast<vImagePixelCount>(videoWidth),
+            .rowBytes = static_cast<size_t>(videoWidth * numChannels)
+        };
+
+        // Permute ARGB → BGRA in a single pass
+        uint8_t permuteMap[4] = {3, 2, 1, 0};
+
+        vImageConvert_420Yp8_CbCr8ToARGB8888(
+            &srcY, &srcUV, &dstBuf, &conversionInfo,
+            permuteMap, 255, kvImageNoFlags
+        );
+    }
+
     uint8_t* nextFrame() {
-        if (!isOpen || !reader || !output) {
+        if (!isOpen || !reader || !output || !conversionReady) {
             DEBUG_LOG("Not ready to extract frames");
             return nullptr;
         }
@@ -249,7 +336,7 @@ public:
         }
 
         CVPixelBufferLockBaseAddress(imageBuffer, kCVPixelBufferLock_ReadOnly);
-        copyFrameData(imageBuffer, frame_buffer.data());
+        convertFrame(imageBuffer, frame_buffer.data());
         CVPixelBufferUnlockBaseAddress(imageBuffer, kCVPixelBufferLock_ReadOnly);
 
         CFRelease(sampleBuffer);
@@ -284,6 +371,7 @@ void FrameExtractor::reset(int64_t frame_index) {
 
 int FrameExtractor::width() const { return impl->videoWidth; }
 int FrameExtractor::height() const { return impl->videoHeight; }
+int FrameExtractor::channels() const { return impl->numChannels; }
 double FrameExtractor::fps() const { return impl->videoFPS; }
 int64_t FrameExtractor::total_frames() const { return impl->numTotalFrames; }
 
