@@ -242,14 +242,9 @@ public:
             DEBUG_LOG("Allocated fresh frame buffer due to active references");
         }
 
-        if (reader.status != AVAssetReaderStatusReading) {
-            DEBUG_LOG("Reader not in reading state");
-            return nullptr;
-        }
-
         CMSampleBufferRef sampleBuffer = [output copyNextSampleBuffer];
         if (!sampleBuffer) {
-            DEBUG_LOG("No more samples available");
+            DEBUG_LOG("No more samples (reader status: " << reader.status << ")");
             return nullptr;
         }
 
