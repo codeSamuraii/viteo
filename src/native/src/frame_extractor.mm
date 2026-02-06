@@ -236,41 +236,39 @@ public:
             return nullptr;
         }
 
-        @autoreleasepool {
-            if (frame_buffer.use_count() > 1 || !frame_buffer) {
-                size_t frameSize = static_cast<size_t>(videoWidth) * static_cast<size_t>(videoHeight) * 4;
-                frame_buffer = std::make_shared<std::vector<uint8_t>>(frameSize);
-                DEBUG_LOG("Allocated fresh frame buffer due to active references");
-            }
-
-            if (reader.status != AVAssetReaderStatusReading) {
-                DEBUG_LOG("Reader not in reading state");
-                return nullptr;
-            }
-
-            CMSampleBufferRef sampleBuffer = [output copyNextSampleBuffer];
-            if (!sampleBuffer) {
-                DEBUG_LOG("No more samples available");
-                return nullptr;
-            }
-
-            CVImageBufferRef imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer);
-            if (!imageBuffer) {
-                CFRelease(sampleBuffer);
-                DEBUG_LOG("Failed to get image buffer from sample");
-                return nullptr;
-            }
-
-            CVPixelBufferLockBaseAddress(imageBuffer, kCVPixelBufferLock_ReadOnly);
-            copyFrameData(imageBuffer, frame_buffer->data());
-            CVPixelBufferUnlockBaseAddress(imageBuffer, kCVPixelBufferLock_ReadOnly);
-
-            CFRelease(sampleBuffer);
-            DEBUG_LOG("Returning frame " << currentFrame);
-            currentFrame++;
-
-            return frame_buffer;
+        if (frame_buffer.use_count() > 1 || !frame_buffer) {
+            size_t frameSize = static_cast<size_t>(videoWidth) * static_cast<size_t>(videoHeight) * 4;
+            frame_buffer = std::make_shared<std::vector<uint8_t>>(frameSize);
+            DEBUG_LOG("Allocated fresh frame buffer due to active references");
         }
+
+        if (reader.status != AVAssetReaderStatusReading) {
+            DEBUG_LOG("Reader not in reading state");
+            return nullptr;
+        }
+
+        CMSampleBufferRef sampleBuffer = [output copyNextSampleBuffer];
+        if (!sampleBuffer) {
+            DEBUG_LOG("No more samples available");
+            return nullptr;
+        }
+
+        CVImageBufferRef imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer);
+        if (!imageBuffer) {
+            CFRelease(sampleBuffer);
+            DEBUG_LOG("Failed to get image buffer from sample");
+            return nullptr;
+        }
+
+        CVPixelBufferLockBaseAddress(imageBuffer, kCVPixelBufferLock_ReadOnly);
+        copyFrameData(imageBuffer, frame_buffer->data());
+        CVPixelBufferUnlockBaseAddress(imageBuffer, kCVPixelBufferLock_ReadOnly);
+
+        CFRelease(sampleBuffer);
+        DEBUG_LOG("Returning frame " << currentFrame);
+        currentFrame++;
+
+        return frame_buffer;
     }
 
     void reset(int64_t frameIndex) {
