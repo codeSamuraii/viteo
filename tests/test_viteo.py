@@ -194,6 +194,75 @@ def test_properties(video_files):
             assert abs(frames.height - expected_height) <= 10, f"Height mismatch for {res_name}"
 
 
+# --- Frame Data Integrity Tests ---
+
+def test_frames_not_black(sample_video):
+    """Test that extracted frames contain actual pixel data, not black."""
+    path = sample_video["path"]
+    if not path.exists():
+        pytest.skip(f"Test video not found: {path}")
+
+    with viteo.open(path) as video:
+        for i, frame in enumerate(video):
+            pixels = memoryview(frame).cast('B')
+            total = sum(pixels)
+            num_pixels = len(pixels)
+            avg_brightness = total / num_pixels
+            assert avg_brightness > 1.0, f"Frame {i} appears black (avg={avg_brightness:.2f})"
+            if i >= 4:
+                break
+
+
+def test_frames_not_solid_color(sample_video):
+    """Test that frames have variance — not a single solid color."""
+    path = sample_video["path"]
+    if not path.exists():
+        pytest.skip(f"Test video not found: {path}")
+
+    with viteo.open(path) as video:
+        frame = next(iter(video))
+        pixels = bytes(memoryview(frame).cast('B'))
+        lo, hi = min(pixels), max(pixels)
+        assert hi - lo > 30, f"Frame pixel range too narrow ({lo}-{hi}), looks like solid color"
+
+
+def test_consecutive_frames_differ(sample_video):
+    """Test that the video actually progresses — consecutive frames are not identical."""
+    path = sample_video["path"]
+    if not path.exists():
+        pytest.skip(f"Test video not found: {path}")
+
+    with viteo.open(path) as video:
+        it = iter(video)
+        prev_sum = sum(memoryview(next(it)).cast('B'))
+        changed = 0
+        for i in range(29):
+            cur_sum = sum(memoryview(next(it)).cast('B'))
+            if cur_sum != prev_sum:
+                changed += 1
+            prev_sum = cur_sum
+
+    assert changed > 0, "All 30 consecutive frames are identical"
+
+
+def test_frame_data_across_resolutions(video_files):
+    """Test that frame data is valid across all resolutions."""
+    for res_name, video_info in video_files.items():
+        path = video_info["path"]
+        if not path.exists():
+            pytest.skip(f"Test video not found: {path}")
+
+        with viteo.open(str(path)) as video:
+            frame = next(iter(video))
+            pixels = memoryview(frame).cast('B')
+            expected_size = video.width * video.height * video.channels
+            assert len(pixels) == expected_size, (
+                f"{res_name}: buffer size {len(pixels)} != expected {expected_size}"
+            )
+            total = sum(pixels)
+            assert total > 0, f"{res_name}: frame is entirely zero"
+
+
 # --- Error Handling Tests ---
 
 def test_nonexistent_file():
