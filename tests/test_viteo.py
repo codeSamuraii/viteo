@@ -194,6 +194,82 @@ def test_properties(video_files):
             assert abs(frames.height - expected_height) <= 10, f"Height mismatch for {res_name}"
 
 
+# --- Cross-Backend Comparison Tests ---
+
+def _frame_similarity(viteo_bgra, opencv_bgr):
+    """Compute fraction of pixels within tolerance between viteo and OpenCV frames."""
+    # Strip alpha channel from viteo (BGRA -> BGR)
+    h, w = opencv_bgr.shape[:2]
+    v_bgr = viteo_bgra[:h, :w, :3]
+    diff = abs(v_bgr.astype(int) - opencv_bgr.astype(int))
+    # Pixel is "similar" if all channels are within 16 of each other
+    close = (diff <= 16).all(axis=2)
+    return close.sum() / close.size
+
+
+def test_viteo_opencv_similarity(sample_video):
+    """Test that viteo and OpenCV produce similar frame data."""
+    import numpy as np
+
+    cv2 = pytest.importorskip("cv2")
+    path = sample_video["path"]
+    if not path.exists():
+        pytest.skip(f"Test video not found: {path}")
+
+    # Extract frames 5-9 (skip first few which may differ due to decoder warmup)
+    with viteo.open(str(path)) as video:
+        it = iter(video)
+        for _ in range(5):
+            next(it)
+        viteo_frames = [np.array(memoryview(next(it))) for _ in range(5)]
+
+    cap = cv2.VideoCapture(str(path))
+    for _ in range(5):
+        cap.read()
+    opencv_frames = []
+    for _ in range(5):
+        ret, frame = cap.read()
+        assert ret, "OpenCV failed to read frame"
+        opencv_frames.append(frame)
+    cap.release()
+
+    for i, (vf, of) in enumerate(zip(viteo_frames, opencv_frames)):
+        sim = _frame_similarity(vf, of)
+        assert sim >= 0.85, (
+            f"Frame {i + 5}: similarity {sim:.1%} < 85% between viteo and OpenCV"
+        )
+
+
+def test_viteo_opencv_similarity_across_resolutions(video_files):
+    """Test viteo/OpenCV similarity at every resolution."""
+    import numpy as np
+
+    cv2 = pytest.importorskip("cv2")
+
+    for res_name, video_info in video_files.items():
+        path = video_info["path"]
+        if not path.exists():
+            pytest.skip(f"Test video not found: {path}")
+
+        # Grab frame 10 from each backend
+        with viteo.open(str(path)) as video:
+            it = iter(video)
+            for _ in range(10):
+                vf = next(it)
+            vf = np.array(memoryview(vf))
+
+        cap = cv2.VideoCapture(str(path))
+        for _ in range(10):
+            ret, of = cap.read()
+        cap.release()
+        assert ret, f"OpenCV failed to read frame for {res_name}"
+
+        sim = _frame_similarity(vf, of)
+        assert sim >= 0.85, (
+            f"{res_name}: similarity {sim:.1%} < 85% between viteo and OpenCV"
+        )
+
+
 # --- Frame Data Integrity Tests ---
 
 def test_frames_not_black(sample_video):

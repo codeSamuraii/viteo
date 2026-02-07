@@ -104,34 +104,58 @@ def print_table(results: list[dict]):
     print()
 
 
-def plot_chart(results: list[dict], save: str | None):
+def _label_bars(ax, bars):
+    for bar in bars:
+        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height(),
+                f"{bar.get_height():.0f}", ha="center", va="bottom", fontsize=7)
+
+
+def plot_charts(results: list[dict], save: str | None):
     labels = [r["video"] for r in results]
-    viteo_fps = [r["viteo"]["fps_avg"] for r in results]
-    opencv_fps = [r["opencv"]["fps_avg"] for r in results]
+    n = len(labels)
+    x = range(n)
+    w = 0.35
 
-    x = range(len(labels))
-    width = 0.35
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(max(12, n * 3), 6))
 
-    fig, ax = plt.subplots(figsize=(max(8, len(labels) * 2), 6))
-    bars_v = ax.bar([i - width / 2 for i in x], viteo_fps, width, label="viteo")
-    bars_o = ax.bar([i + width / 2 for i in x], opencv_fps, width, label="OpenCV")
+    # --- Chart 1: Average FPS ---
+    v_avg = [r["viteo"]["fps_avg"] for r in results]
+    o_avg = [r["opencv"]["fps_avg"] for r in results]
+    bars_v = ax1.bar([i - w / 2 for i in x], v_avg, w, label="viteo", color="#4C72B0")
+    bars_o = ax1.bar([i + w / 2 for i in x], o_avg, w, label="OpenCV", color="#DD8452")
+    _label_bars(ax1, bars_v)
+    _label_bars(ax1, bars_o)
+    ax1.set_ylabel("FPS")
+    ax1.set_title("Average FPS")
+    ax1.set_xticks(list(x))
+    ax1.set_xticklabels(labels, rotation=30, ha="right", fontsize=9)
+    ax1.legend()
 
-    ax.set_ylabel("Average FPS")
-    ax.set_title("Frame Extraction: viteo vs OpenCV")
-    ax.set_xticks(list(x))
-    ax.set_xticklabels(labels, rotation=30, ha="right", fontsize=8)
-    ax.legend()
+    # --- Chart 2: Percentile ms/frame ---
+    pcts = ["p50", "p90", "p99"]
+    bar_w = 0.13
+    offsets = [-2.5, -1.5, -0.5, 0.5, 1.5, 2.5]
+    colors_v = ["#4C72B0", "#7BA3D4", "#AFC6E4"]
+    colors_o = ["#DD8452", "#EEAC82", "#F5CFB0"]
 
-    for bar in bars_v:
-        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height(),
-                f"{bar.get_height():.0f}", ha="center", va="bottom", fontsize=7)
-    for bar in bars_o:
-        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height(),
-                f"{bar.get_height():.0f}", ha="center", va="bottom", fontsize=7)
+    for j, pct in enumerate(pcts):
+        v_vals = [r["viteo"][f"ms_{pct}"] for r in results]
+        o_vals = [r["opencv"][f"ms_{pct}"] for r in results]
+        ax2.bar([i + offsets[j] * bar_w for i in x], v_vals, bar_w,
+                label=f"viteo {pct}", color=colors_v[j])
+        ax2.bar([i + offsets[j + 3] * bar_w for i in x], o_vals, bar_w,
+                label=f"OpenCV {pct}", color=colors_o[j])
 
+    ax2.set_ylabel("ms / frame")
+    ax2.set_title("Latency Percentiles")
+    ax2.set_xticks(list(x))
+    ax2.set_xticklabels(labels, rotation=30, ha="right", fontsize=9)
+    ax2.legend(fontsize=7, ncol=2)
+
+    fig.suptitle("Frame Extraction: viteo vs OpenCV", fontsize=13, y=1.02)
     fig.tight_layout()
     if save:
-        fig.savefig(save, dpi=150)
+        fig.savefig(save, dpi=150, bbox_inches="tight")
         print(f"Chart saved to {save}")
     else:
         plt.show()
@@ -154,7 +178,7 @@ def main():
         })
 
     print_table(results)
-    plot_chart(results, args.save)
+    plot_charts(results, args.save)
 
 
 if __name__ == "__main__":
