@@ -8,11 +8,10 @@
 #include <cmath>
 #include <iostream>
 
-#define DEBUG_LOG(msg) do { \
-    if (debugLogging) { \
-        std::cerr << "[viteo] " << msg << std::endl; \
-    } \
-} while(0)
+// Level 1: lifecycle and configuration events (open, close, reset, errors)
+// Level 2: per-frame decode loop details (sample buffers, plane copies, conversion)
+#define LOG1(msg) do { if (debugLevel >= 1) std::cerr << "[viteo] " << msg << std::endl; } while(0)
+#define LOG2(msg) do { if (debugLevel >= 2) std::cerr << "[viteo] " << msg << std::endl; } while(0)
 
 namespace viteo {
 
@@ -38,21 +37,21 @@ public:
     vImage_YpCbCrToARGB conversionInfo;
     bool conversionReady = false;
     bool isOpen = false;
-    bool debugLogging = false;
+    int debugLevel = 0;
 
     Impl() {
-        if (std::getenv("VITEO_DEBUG")) {
-            debugLogging = true;
+        const char* env = std::getenv("VITEO_DEBUG");
+        if (env) {
+            debugLevel = std::atoi(env);
+            if (debugLevel < 1) debugLevel = 1;
         }
-        DEBUG_LOG("Initialized frame extractor");
+        LOG1("Initialized extractor (debug level " << debugLevel << ")");
     }
 
     ~Impl() {
         close();
-        // ARC handles cleanup automatically
     }
 
-    /// Releases all resources and resets state
     void close() {
         @autoreleasepool {
             if (reader) {
@@ -69,25 +68,22 @@ public:
         frame_buffer.clear(); frame_buffer.shrink_to_fit();
         y_buffer.clear(); y_buffer.shrink_to_fit();
         uv_buffer.clear(); uv_buffer.shrink_to_fit();
-        DEBUG_LOG("Closed video resources");
+        LOG1("Closed and released all resources");
     }
 
-    /// Loads asset from file path
     AVAsset* loadAsset(const std::string& path) {
+        LOG1("Loading asset from " << path);
         NSString* nsPath = [NSString stringWithUTF8String:path.c_str()];
         NSURL* url = [NSURL fileURLWithPath:nsPath];
         AVAsset* loadedAsset = [AVAsset assetWithURL:url];
 
-        if (loadedAsset) {
-            DEBUG_LOG("Loaded asset from: " << path);
-        } else {
-            DEBUG_LOG("Failed to load asset from: " << path);
+        if (!loadedAsset) {
+            LOG1("Failed to create AVAsset from path");
         }
 
         return loadedAsset;
     }
 
-    /// Extracts video track from asset
     AVAssetTrack* extractVideoTrack(AVAsset* videoAsset) {
         #pragma clang diagnostic push
         #pragma clang diagnostic ignored "-Wdeprecated-declarations"
@@ -95,15 +91,14 @@ public:
         #pragma clang diagnostic pop
 
         if (tracks.count == 0) {
-            DEBUG_LOG("No video tracks found");
+            LOG1("No video tracks found in asset");
             return nil;
         }
 
-        DEBUG_LOG("Found " << tracks.count << " video track(s)");
+        LOG1("Found " << tracks.count << " video track(s), using first");
         return tracks[0];
     }
 
-    /// Caches video metadata from track
     void cacheMetadata(AVAssetTrack* track, AVAsset* videoAsset) {
         CGSize size = [track naturalSize];
         videoWidth = static_cast<int>(size.width);
@@ -111,17 +106,18 @@ public:
         videoFPS = [track nominalFrameRate];
 
         CMTime duration = track.timeRange.duration;
-        numTotalFrames = std::llround(
-            CMTimeGetSeconds(duration) * videoFPS
-        );
+        double durationSec = CMTimeGetSeconds(duration);
+        numTotalFrames = std::llround(durationSec * videoFPS);
 
-        DEBUG_LOG("Video metadata: " << videoWidth << "x" << videoHeight
-                  << " @ " << videoFPS << " fps, "
-                  << numTotalFrames << " total frames");
+        LOG1("Track: " << videoWidth << "x" << videoHeight
+             << ", " << videoFPS << " fps"
+             << ", " << durationSec << "s"
+             << ", ~" << numTotalFrames << " frames");
     }
 
-    /// Initializes vImage YUV-to-ARGB conversion (called once per open)
     bool initConversionInfo() {
+        LOG1("Initializing vImage NV12->BGRA conversion (BT.709 video range)");
+
         vImage_YpCbCrPixelRange pixelRange = {
             .Yp_bias = 16,
             .CbCr_bias = 128,
@@ -144,14 +140,13 @@ public:
 
         conversionReady = (err == kvImageNoError);
         if (!conversionReady) {
-            DEBUG_LOG("Failed to initialize vImage conversion: " << err);
+            LOG1("vImage conversion init failed (error " << err << ")");
         } else {
-            DEBUG_LOG("vImage BT.709 conversion initialized");
+            LOG1("vImage conversion ready");
         }
         return conversionReady;
     }
 
-    /// Opens video file and initializes extraction
     bool open(const std::string& path) {
         close();
 
@@ -164,30 +159,27 @@ public:
 
             cacheMetadata(videoTrack, asset);
 
-            // Allocate output buffer (BGRA)
             size_t frameSize = videoWidth * videoHeight * numChannels;
             frame_buffer.resize(frameSize);
-
-            // Allocate intermediate NV12 plane buffers
             y_buffer.resize(videoWidth * videoHeight);
             uv_buffer.resize(videoWidth * (videoHeight / 2));
 
-            DEBUG_LOG("Allocated buffers: output=" << (frameSize / 1024 / 1024)
-                      << " MB, Y=" << (y_buffer.size() / 1024 / 1024)
-                      << " MB, UV=" << (uv_buffer.size() / 1024 / 1024) << " MB");
+            LOG1("Buffers allocated: BGRA=" << (frameSize / 1024) << "K"
+                 << ", Y=" << (y_buffer.size() / 1024) << "K"
+                 << ", UV=" << (uv_buffer.size() / 1024) << "K");
 
             if (!initConversionInfo()) return false;
 
             isOpen = true;
             if (!setupReader(0)) return false;
 
-            DEBUG_LOG("Video opened successfully");
+            LOG1("Open complete, ready to decode");
             return true;
         }
     }
 
-    /// Creates output settings for native NV12 decode
     NSDictionary* createOutputSettings() {
+        LOG1("Requesting NV12 output (420YpCbCr8BiPlanarVideoRange) with hardware decode");
         return @{
             (id)kCVPixelBufferPixelFormatTypeKey: @(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange),
             AVVideoDecompressionPropertiesKey: @{
@@ -197,7 +189,6 @@ public:
         };
     }
 
-    /// Configures track output for optimal performance
     AVAssetReaderTrackOutput* createTrackOutput(AVAssetTrack* track, NSDictionary* settings) {
         AVAssetReaderTrackOutput* trackOutput = [[AVAssetReaderTrackOutput alloc]
             initWithTrack:track outputSettings:settings];
@@ -205,24 +196,26 @@ public:
         trackOutput.alwaysCopiesSampleData = NO;
         trackOutput.supportsRandomAccess = YES;
 
-        DEBUG_LOG("Created track output with hardware acceleration");
+        LOG1("Track output created (alwaysCopiesSampleData=NO, supportsRandomAccess=YES)");
         return trackOutput;
     }
 
-    /// Applies time range for seeking to specific frame
     void applyTimeRange(AVAssetReader* videoReader, int64_t startFrame) {
         if (startFrame > 0) {
             CMTime startTime = CMTimeMake(startFrame, videoFPS);
             CMTime duration = CMTimeSubtract([asset duration], startTime);
             videoReader.timeRange = CMTimeRangeMake(startTime, duration);
-            DEBUG_LOG("Seeking to frame " << startFrame);
+            LOG1("Time range set: start frame " << startFrame
+                 << " (" << CMTimeGetSeconds(startTime) << "s)");
         }
     }
 
-    /// Initializes reader for frame extraction
     bool setupReader(int64_t startFrame) {
+        LOG1("Setting up AVAssetReader (start frame " << startFrame << ")");
+
         @autoreleasepool {
             if (reader) {
+                LOG1("Cancelling previous reader");
                 [reader cancelReading];
                 reader = nil;
                 output = nil;
@@ -231,7 +224,8 @@ public:
             NSError* error = nil;
             reader = [[AVAssetReader alloc] initWithAsset:asset error:&error];
             if (error || !reader) {
-                DEBUG_LOG("Failed to create reader: " << (error ? [[error localizedDescription] UTF8String] : "unknown error"));
+                LOG1("AVAssetReader creation failed: "
+                     << (error ? [[error localizedDescription] UTF8String] : "unknown"));
                 return false;
             }
 
@@ -239,7 +233,7 @@ public:
             output = createTrackOutput(videoTrack, outputSettings);
 
             if (![reader canAddOutput:output]) {
-                DEBUG_LOG("Cannot add output to reader");
+                LOG1("Reader rejected track output");
                 reader = nil;
                 output = nil;
                 return false;
@@ -249,19 +243,18 @@ public:
             applyTimeRange(reader, startFrame);
 
             if (![reader startReading]) {
-                DEBUG_LOG("Failed to start reading");
+                LOG1("Reader failed to start");
                 reader = nil;
                 output = nil;
                 return false;
             }
 
             currentFrame = startFrame;
-            DEBUG_LOG("Reader initialized successfully");
+            LOG1("Reader started, decoding from frame " << startFrame);
             return true;
         }
     }
 
-    /// Copies a plane from CVPixelBuffer into a contiguous buffer
     void copyPlane(CVImageBufferRef imageBuffer, int planeIndex,
                    uint8_t* dst, size_t dstRowBytes, int planeHeight) {
         uint8_t* src = (uint8_t*)CVPixelBufferGetBaseAddressOfPlane(imageBuffer, planeIndex);
@@ -269,23 +262,27 @@ public:
 
         if (srcRowBytes == dstRowBytes) {
             memcpy(dst, src, dstRowBytes * planeHeight);
+            LOG2("Plane " << planeIndex << ": bulk copy "
+                 << (dstRowBytes * planeHeight / 1024) << "K");
         } else {
             for (int y = 0; y < planeHeight; y++) {
                 memcpy(dst + y * dstRowBytes, src + y * srcRowBytes, dstRowBytes);
             }
+            LOG2("Plane " << planeIndex << ": strided copy "
+                 << planeHeight << " rows"
+                 << " (src stride " << srcRowBytes
+                 << ", dst stride " << dstRowBytes << ")");
         }
     }
 
-    /// Converts NV12 pixel buffer to BGRA using vImage
     void convertFrame(CVImageBufferRef imageBuffer, uint8_t* dst) {
-        // Copy Y plane (full resolution)
+        LOG2("Copying Y plane (" << videoWidth << "x" << videoHeight << ")");
         copyPlane(imageBuffer, 0, y_buffer.data(), videoWidth, videoHeight);
 
-        // Copy UV plane (half height, full width for interleaved CbCr)
         int uvHeight = videoHeight / 2;
+        LOG2("Copying UV plane (" << videoWidth << "x" << uvHeight << ")");
         copyPlane(imageBuffer, 1, uv_buffer.data(), videoWidth, uvHeight);
 
-        // Set up vImage buffers
         vImage_Buffer srcY = {
             .data = y_buffer.data(),
             .height = static_cast<vImagePixelCount>(videoHeight),
@@ -307,9 +304,9 @@ public:
             .rowBytes = static_cast<size_t>(videoWidth * numChannels)
         };
 
-        // Permute ARGB → BGRA in a single pass
         uint8_t permuteMap[4] = {3, 2, 1, 0};
 
+        LOG2("vImage NV12->BGRA conversion (" << videoWidth << "x" << videoHeight << ")");
         vImageConvert_420Yp8_CbCr8ToARGB8888(
             &srcY, &srcUV, &dstBuf, &conversionInfo,
             permuteMap, 255, kvImageNoFlags
@@ -318,29 +315,33 @@ public:
 
     uint8_t* nextFrame() {
         if (!isOpen || !reader || !output || !conversionReady) {
-            DEBUG_LOG("Not ready to extract frames");
+            LOG1("nextFrame called but not ready");
             return nullptr;
         }
 
+        LOG2("Pulling sample buffer for frame " << currentFrame);
         CMSampleBufferRef sampleBuffer = [output copyNextSampleBuffer];
         if (!sampleBuffer) {
-            DEBUG_LOG("No more samples (reader status: " << reader.status << ")");
+            LOG1("End of stream at frame " << currentFrame
+                 << " (reader status " << reader.status << ")");
             return nullptr;
         }
 
         CVImageBufferRef imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer);
         if (!imageBuffer) {
             CFRelease(sampleBuffer);
-            DEBUG_LOG("Failed to get image buffer from sample");
+            LOG1("Null image buffer at frame " << currentFrame);
             return nullptr;
         }
 
+        LOG2("Locking pixel buffer");
         CVPixelBufferLockBaseAddress(imageBuffer, kCVPixelBufferLock_ReadOnly);
         convertFrame(imageBuffer, frame_buffer.data());
         CVPixelBufferUnlockBaseAddress(imageBuffer, kCVPixelBufferLock_ReadOnly);
+        LOG2("Pixel buffer unlocked");
 
         CFRelease(sampleBuffer);
-        DEBUG_LOG("Returning frame " << currentFrame);
+        LOG2("Frame " << currentFrame << " decoded");
         currentFrame++;
 
         return frame_buffer.data();
@@ -348,7 +349,7 @@ public:
 
     void reset(int64_t frameIndex) {
         if (!isOpen) return;
-        DEBUG_LOG("Resetting to frame " << frameIndex);
+        LOG1("Reset to frame " << frameIndex);
         setupReader(frameIndex);
     }
 };
