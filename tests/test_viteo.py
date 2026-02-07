@@ -24,20 +24,26 @@ def test_data_dir():
 def video_files(test_data_dir):
     """Dictionary of test video files with their properties."""
     return {
+        "720p": {
+            "path": test_data_dir / "720p.mp4",
+            "width": 1280,
+            "height": 720,
+            "min_fps": 200.0
+        },
         "1080p": {
-            "path": test_data_dir / "1080p_30M_hevc8.mp4",
+            "path": test_data_dir / "1080p.mp4",
             "width": 1920,
             "height": 1080,
             "min_fps": 120.0
         },
         "4k": {
-            "path": test_data_dir / "4k_100M_hevc10.mp4",
+            "path": test_data_dir / "4k.mp4",
             "width": 3840,
             "height": 2160,
             "min_fps": 60.0
         },
         "8k": {
-            "path": test_data_dir / "8k_150M_hevc10.mp4",
+            "path": test_data_dir / "8k.mp4",
             "width": 7680,
             "height": 4320,
             "min_fps": 30.0
@@ -48,7 +54,7 @@ def video_files(test_data_dir):
 @pytest.fixture
 def sample_video(video_files):
     """A standard test video file (720p for faster tests)."""
-    return video_files["1080p"]
+    return video_files["720p"]
 
 
 # --- Basic Functionality Tests ---
@@ -293,7 +299,7 @@ if __name__ == "__main__":
         videos = [Path(p) for p in sys.argv[1:]]
     else:
         samples_dir = Path(__file__).parent / "samples"
-        videos = list(samples_dir.rglob("1080p_*.mp4", case_sensitive=False))
+        videos = list(samples_dir.rglob("*.mp4", case_sensitive=False))
 
     # Run benchmark for each video
     for video_path in videos:
